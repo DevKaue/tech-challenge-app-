@@ -1,0 +1,43 @@
+# Acesso de rede da API no ambiente AWS, nos dois sentidos.
+#
+# INGRESS — a peça sem a qual a produção não responde. O `default-deny-all` do
+# base cobre Ingress e Egress; sem esta regra o ALB (que fala direto no IP do
+# pod, por causa de `target-type: ip`) tem 100% do tráfego dropado, marca os
+# targets unhealthy e a API responde 504. Localmente isso passa despercebido: o
+# Docker Desktop não enforça NetworkPolicy e o `port-forward` passa pelo
+# kubelet, fora do alcance dela.
+#
+# EGRESS — o RDS fica FORA do cluster, então não existe podSelector que o
+# alcance; é preciso liberar por ipBlock. Sem isto a API não conecta no banco e
+# os pods ficam falhando readiness com timeout.
+#
+# Os dois lados usam o CIDR da VPC: é onde vivem tanto as ENIs do ALB quanto o
+# RDS. Load Balancer e instância RDS não são pods — ipBlock é a única forma.
+#
+# TROCAR o CIDR nas DUAS linhas abaixo pelo CIDR da VPC (output `vpc_cidr` do
+# repositório de infraestrutura Kubernetes).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-vpc-access
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: techchallenge-api
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.0.0.0/16 # CIDR da VPC
+      ports:
+        # Porta do CONTAINER (3000), não a do Service (80): com target-type ip
+        # o ALB entrega direto no pod, sem passar pelo kube-proxy.
+        - port: 3000
+          protocol: TCP
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/16 # CIDR da VPC
+      ports:
+        - port: 5432
+          protocol: TCP

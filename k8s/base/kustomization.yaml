@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: techchallenge
+
+# Forma moderna (commonLabels está deprecada). includeSelectors: false é
+# deliberado: selector de Deployment é IMUTÁVEL, então não se deve injetar
+# label gerado nele — removê-la depois quebraria o apply.
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: techchallenge
+    includeSelectors: false
+
+# O Namespace NÃO está aqui: cada overlay cria o seu — `local` e `aws` incluem
+# namespace.yaml. Um único dono para o objeto, simétrico nos dois ambientes.
+resources:
+  - serviceaccount.yaml
+  - rbac.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+  - networkpolicy.yaml
+  - hpa.yaml
+  - pdb.yaml

@@ -1,0 +1,124 @@
+graph TB
+    classDef gh fill:#fff2cc,stroke:#d6b656
+    classDef ci fill:#d5e8d4,stroke:#82b366
+    classDef deploy fill:#dae8fc,stroke:#6c8ebf
+    classDef aws fill:#ffe6cc,stroke:#d79b00
+    classDef data fill:#f8cecc,stroke:#b85450
+    classDef local fill:#f5f5f5,stroke:#666
+
+    DEV["Desenvolvedor"]
+    CLIENTE["Cliente / Internet"]
+
+    subgraph GitHubActions["GitHub Actions"]
+        direction TB
+
+        subgraph CI["ci.yml - PR e push em develop/main"]
+            direction TB
+            C1["build-and-unit<br/>lint + typecheck + build<br/>+ testes unitarios (Jest)"]
+            C2["integration<br/>prisma migrate deploy +<br/>testes de integracao (Postgres service)"]
+            C3["docker (so PR)<br/>build imagem production<br/>sem push"]
+            C4["manifests<br/>kustomize + kubeconform<br/>+ checagens de overlay"]
+        end
+
+        subgraph DEPLOY["deploy.yml - push develop -> homolog / main -> production (ou manual)"]
+            direction TB
+            D0["0. Resolver ambiente<br/>branch -> homolog|production"]
+            D1["1. Resolver tags<br/>v&lt;run_number&gt; e &lt;commit-sha&gt;"]
+            D2["2. Credenciais AWS OIDC<br/>sem chave estatica"]
+            D3["3. Login no ECR"]
+            D4["4. Build multi-stage + push<br/>ECR:v&lt;N&gt; | ECR:&lt;sha&gt;"]
+            D5["5. Criar .env.secret<br/>env secrets -> Kustomize"]
+            D6["6. kubeconfig do EKS"]
+            D7["7. kustomize edit set image"]
+            D8["8. kubectl diff (log)"]
+            D9["9. kubectl apply -k aws<br/>(namespace + Secret + app)"]
+            D10["10. rollout status<br/>timeout 300s"]
+            D11["11. rollback automatico<br/>rollout undo"]
+            D12["12. smoke test /api/health"]
+            D13["13. resumo no job"]
+        end
+
+        subgraph QUALIDADE["Qualidade local (docker-compose profile quality)"]
+            SONAR["SonarQube 26<br/>coverage scan"]
+        end
+    end
+
+    subgraph AWS["AWS"]
+        direction TB
+        ECR[("Amazon ECR<br/>tag imutavel")]
+
+        subgraph EKS["EKS - cluster techchallenge"]
+            direction TB
+            ING["ALB Ingress<br/>internet-facing :80<br/>NetworkPolicy api-vpc-access"]
+            SVC["Service techchallenge-api :80<br/>target-type ip"]
+            DEP["Deployment techchallenge-api<br/>RollingUpdate maxUnavailable=0<br/>3 replicas (HPA 3-10)"]
+            INIT["initContainer migrate<br/>prisma migrate deploy"]
+            API["container api - NestJS :3000<br/>startup / readiness / liveness<br/>non-root, read-only FS"]
+            CFG["ConfigMap techchallenge-config"]
+            SEC["Secret techchallenge-secrets<br/>gerado pelo overlay (Kustomize)"]
+        end
+
+        RDS[("RDS PostgreSQL 15<br/>privado, single-AZ")]
+    end
+
+    subgraph INFRA["Repositorios de infraestrutura (Terraform)"]
+        direction TB
+        TFK8S["item 2 - tech-challenge-infra-k8s<br/>VPC, EKS, ECR, ALB Controller, OIDC, roles"]
+        TFDB["item 3 - tech-challenge-infra-db<br/>RDS PostgreSQL"]
+    end
+
+    subgraph LOCAL["Desenvolvimento local"]
+        LAPI["docker compose - target development<br/>hot reload / seed"]
+        LDB[("Postgres 15<br/>:5433")]
+    end
+
+    DEV -->|"PR / push develop / main"| CI
+    DEV -->|"push develop / main"| DEPLOY
+
+    C1 --> C2
+    C1 -.->|"upload coverage"| SONAR
+    C3 --> C4
+
+    D0 --> D1
+    D1 --> D2 --> D3 --> D4 --> D5 --> D6 --> D7 --> D8 --> D9 --> D10
+    D10 -->|"sucesso"| D12
+    D10 -->|"falha no rollout"| D11 --> D12
+    D12 --> D13
+
+    D4 -->|"push"| ECR
+    D9 -->|"apply -k"| EKS
+
+    ECR -.->|"pull image"| DEP
+    DEP --> INIT
+    DEP --> API
+    INIT -->|"migrate deploy"| RDS
+    API -->|"SQL"| RDS
+    CFG -.->|"envFrom"| API
+    SEC -.->|"envFrom"| API
+
+    ING -->|"HTTP :80 /api/*"| SVC
+    SVC -->|"target ip"| API
+    CLIENTE -->|"Health / Docs / API"| ING
+
+    TFK8S --> ECR
+    TFK8S --> EKS
+    TFDB --> RDS
+    INFRA -.->|"outputs: cluster_name, ecr_url, vpc_cidr, DATABASE_URL"| DEPLOY
+
+    DEV -->|"docker compose up"| LOCAL
+    LAPI --> LDB
+
+    style GitHubActions fill:#fbfbfb,stroke:#999,stroke-dasharray:3
+    style AWS fill:#fdf4ec,stroke:#999,stroke-dasharray:3
+    style CI fill:#f3f9f3
+    style DEPLOY fill:#f3f7fb
+
+    class DEV,CLIENTE gh
+    class C1,C2,C3,C4 ci
+    class D0,D1,D2,D3,D4,D5,D6,D7,D8,D9,D10,D11,D12,D13 deploy
+    class ECR,ING,SVC,DEP,INIT,API,CFG,SEC aws
+    class RDS,TFDB data
+    class TFK8S aws
+    class INFRA deploy
+    class LAPI,LDB local
+    class SONAR ci

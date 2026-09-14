@@ -1,0 +1,19 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": "..",
+  "testEnvironment": "node",
+  "testRegex": ".e2e-spec.ts$",
+  "setupFiles": ["<rootDir>/test/setup/test-env.ts"],
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "moduleNameMapper": {
+    "^@/(.*)$": "<rootDir>/src/$1",
+    "^@test/(.*)$": "<rootDir>/test/$1",
+    "^@access-identity/(.*)$": "<rootDir>/src/access-identity/$1",
+    "^@customer-management/(.*)$": "<rootDir>/src/customer-management/$1",
+    "^@materials/(.*)$": "<rootDir>/src/materials/$1",
+    "^@service-orders/(.*)$": "<rootDir>/src/service-orders/$1",
+    "^@common/(.*)$": "<rootDir>/src/common/$1"
+  }
+}

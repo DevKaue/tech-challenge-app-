@@ -1,0 +1,75 @@
+graph LR
+    subgraph Apresentacao["Presentation Layer"]
+        CTR[Controller]
+        DTO_IN[Input DTOs]
+        DTO_OUT[Output DTOs]
+        GUARD[Guards / Decorators]
+        FILTER[Exception Filters]
+    end
+
+    subgraph Aplicacao["Application Layer"]
+        UC[Use Cases]
+        APP_DTO[Application DTOs]
+        APP_CONTRACT[Contracts / Ports]
+        EXC[Application Exceptions]
+    end
+
+    subgraph Dominio["Domain Layer"]
+        ENT[Entities]
+        VO[Value-Objects]
+        DOM_ENUM[Enums]
+        DOM_EXC[Domain Exceptions]
+        FACTORY[Factories]
+        DOM_SERVICE[Domain Services]
+        DOM_CONTRACT[Repository Interfaces]
+        ACL[ACLs para contextos externos]
+    end
+
+    subgraph Infra["Infrastructure Layer"]
+        REPO[Prisma Repositories]
+        FACADE[Facades / Integrations]
+        QUERY[Query Services]
+        MAPPER[Mappers]
+        MODULE[NestJS Module]
+    end
+
+    subgraph Persistencia["Persistence"]
+        PRISMA[PrismaService]
+        DB[(PostgreSQL)]
+    end
+
+    CTR --> DTO_IN
+    CTR --> FILTER
+    CTR --> UC
+    GUARD -.-> CTR
+    UC --> APP_DTO
+    UC --> APP_CONTRACT
+    UC --> EXC
+    UC --> ENT
+    UC --> VO
+    UC --> FACTORY
+    UC --> DOM_SERVICE
+    UC --> ACL
+    UC --> REPO
+    UC --> QUERY
+
+    DOM_CONTRACT --> REPO
+
+    REPO --> MAPPER
+    MAPPER --> PRISMA
+    QUERY --> PRISMA
+    PRISMA --> DB
+
+    MODULE --> CTR
+    MODULE --> FACADE
+    MODULE --> REPO
+    MODULE --> QUERY
+    MODULE --> FILTER
+
+    FACADE --> UC
+
+    style Apresentacao fill:#d4e6f1
+    style Aplicacao fill:#d5e8d4
+    style Dominio fill:#ffe6cc
+    style Infra fill:#e1d5e7
+    style Persistencia fill:#f8cecc

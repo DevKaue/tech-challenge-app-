@@ -1,0 +1,51 @@
+graph LR
+    subgraph Autenticacao["access-identity<br/>Autenticação e Usuários"]
+        AUTH[Login / JWT]
+        USERS[Usuários]
+        ROLES[Roles: ATTENDANT,<br/>MECHANIC, ADMIN]
+    end
+
+    subgraph Clientes["customer-management<br/>Clientes e Veículos"]
+        CUST[Clientes]
+        VEH[Veículos]
+        CM_FACADE[CustomerManagementFacade]
+    end
+
+    subgraph Catalogo["service-catalog<br/>Catálogo de Serviços"]
+        SERV[Serviços]
+        SVCAT_FACADE[ServiceCatalogRepository]
+    end
+
+    subgraph Estoque["materials<br/>Peças e Insumos"]
+        MAT[Peças]
+        STOCK[Controle de Estoque]
+        MAT_FACADE[MaterialRepository]
+    end
+
+    subgraph Operacao["service-orders<br/>Ordens de Serviço"]
+        OS[Ordens de Serviço]
+        DIAG[Diagnóstico]
+        EST[Orçamentos]
+        MECH[Mecânicos]
+        METRIC[Métricas]
+        SO_FACADE[ServiceOrdersFacade]
+    end
+
+    subgraph Compartilhado["common<br/>Compartilhado"]
+        VALIDATORS[Validadores<br/>Documento, Placa]
+        FILTERS[Exception Filters]
+        CONFIG[Config / Env]
+    end
+
+    Operacao -->|ACL: CUSTOMER_REPOSITORY| Clientes
+    Operacao -->|ACL: VEHICLE_REPOSITORY| Clientes
+    Operacao -->|ACL: SERVICE_CATALOG_REPOSITORY| Catalogo
+    Operacao -->|ACL: PART_REPOSITORY| Estoque
+    Operacao -->|ACL: USER_REPOSITORY| Autenticacao
+
+    Clientes -->|consulta| Operacao
+    Cliente --> Compartilhado
+    Catalogo --> Compartilhado
+    Estoque --> Compartilhado
+    Autenticacao --> Compartilhado
+    Operacao --> Compartilhado

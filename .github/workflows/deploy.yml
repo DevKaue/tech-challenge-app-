@@ -1,0 +1,189 @@
+name: Deploy (Kubernetes)
+
+on:
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Ambiente a implantar'
+        type: choice
+        default: production
+        options: [homolog, production]
+      image_tag:
+        description: 'Tag a implantar, ex.: v3 (vazio = v<run_number>). Use para redeploy de uma versão anterior.'
+        required: false
+
+# Nunca dois deploys simultâneos para o MESMO ambiente; e este NÃO cancela o
+# anterior — matar um rollout no meio deixa o Deployment em estado misto.
+# O grupo usa a branch (develop → homolog, main → production), então pushes
+# seguidos no mesmo alvo serializam.
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # troca o token OIDC do Actions por credencial temporária da AWS
+  contents: read
+
+env:
+  NAMESPACE: techchallenge
+  DEPLOYMENT: techchallenge-api
+
+jobs:
+  resolve-environment:
+    name: Resolver ambiente
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.set.outputs.environment }}
+    steps:
+      - id: set
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "environment=${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
+          else
+            case "${{ github.ref_name }}" in
+              develop) echo "environment=homolog"    >> "$GITHUB_OUTPUT" ;;
+              main)    echo "environment=production" >> "$GITHUB_OUTPUT" ;;
+              *)       echo "environment=none"       >> "$GITHUB_OUTPUT" ;;
+            esac
+          fi
+
+  deploy:
+    name: Deploy (${{ needs.resolve-environment.outputs.environment }})
+    runs-on: ubuntu-latest
+    needs: resolve-environment
+    if: needs.resolve-environment.outputs.environment != 'none'
+    # Variáveis e Secrets deste job vêm do ambiente (homolog ou production) —
+    # crie os dois em Settings → Environments → Environment secrets/variables.
+    environment: ${{ needs.resolve-environment.outputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Duas tags para a MESMA imagem:
+      #   v<N>  → legível ("subimos a v7"). N é o número da execução deste
+      #           workflow: monotônico, nunca repete, e leva direto ao run
+      #           correspondente na aba Actions.
+      #   <sha> → procedência. Sem ela, "qual commit é a v7?" fica sem resposta
+      #           a partir do registry.
+      # O ECR é IMMUTABLE, então nenhuma das duas pode ser sobrescrita — o
+      # rollback sempre aponta para um artefato específico.
+      - name: Resolver tags
+        id: tag
+        run: |
+          echo "versao=${{ inputs.image_tag || format('v{0}', github.run_number) }}" >> "$GITHUB_OUTPUT"
+          echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      # Sem AWS_ACCESS_KEY_ID em secret: o Actions apresenta seu token OIDC e a
+      # role confia apenas em `repo:<owner>/<repo>:*` (role criada pelo repositório
+      # de infraestrutura Kubernetes, output `github_deploy_role_arn`).
+      - name: Credenciais AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login no ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build e push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: production
+          push: true
+          # Nunca `latest`: em produção a tag precisa identificar um artefato.
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ steps.tag.outputs.versao }}
+            ${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ steps.tag.outputs.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # O namespace e o Secret eram criados pelo Terraform (que agora vive nos
+      # repositórios de infra). Aqui o overlay gera os dois por Kustomize; o
+      # secretGenerator lê um .env.secret, criado com as Secrets do ambiente.
+      # DATABASE_URL aponta para o RDS provisionado pelo repositório de banco.
+      - name: Criar .env.secret da aplicação
+        run: |
+          cat > k8s/overlays/aws/.env.secret <<'EOF'
+          DATABASE_URL=${{ secrets.AWS_DATABASE_URL }}
+          JWT_SECRET=${{ secrets.AWS_JWT_SECRET }}
+          PASSWORD_SALT=${{ secrets.AWS_PASSWORD_SALT }}
+          WEBHOOK_SECRET=${{ secrets.AWS_WEBHOOK_SECRET }}
+          EOF
+
+      - name: kubeconfig
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+        env:
+          EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+
+      - name: Fixar a imagem no overlay
+        working-directory: k8s/overlays/aws
+        run: |
+          curl -sL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.5.0/kustomize_v5.5.0_linux_amd64.tar.gz | tar xz -C /usr/local/bin
+          kustomize edit set image \
+            techchallenge-api=${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ steps.tag.outputs.versao }}
+
+      # Diff antes do apply: aparece no log do job e é o que se lê quando algo
+      # dá errado às 3h da manhã.
+      - name: Diff
+        continue-on-error: true # o diff retorna 1 quando há mudanças
+        run: kubectl diff -k k8s/overlays/aws || true
+
+      - name: Apply
+        run: kubectl apply -k k8s/overlays/aws
+
+      - name: Aguardar rollout
+        id: rollout
+        run: kubectl -n "$NAMESPACE" rollout status "deployment/$DEPLOYMENT" --timeout=300s
+
+      # Rollback automático: sem isto, um deploy quebrado fica de pé até alguém
+      # perceber. `rollout undo` volta para a revisão anterior imediatamente.
+      - name: Rollback em caso de falha
+        if: failure() && steps.rollout.outcome == 'failure'
+        run: |
+          echo "::error::Rollout falhou — revertendo"
+          kubectl -n "$NAMESPACE" describe deployment "$DEPLOYMENT" | tail -30
+          kubectl -n "$NAMESPACE" logs "deployment/$DEPLOYMENT" --tail=100 --all-containers || true
+          kubectl -n "$NAMESPACE" rollout undo "deployment/$DEPLOYMENT"
+          kubectl -n "$NAMESPACE" rollout status "deployment/$DEPLOYMENT" --timeout=180s
+
+      - name: Smoke test
+        run: |
+          HOST=$(kubectl -n "$NAMESPACE" get ingress techchallenge-api \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          if [ -z "$HOST" ]; then
+            echo "::warning::Ingress ainda sem ADDRESS — smoke test pulado"
+            exit 0
+          fi
+          # Um ALB recém-criado devolve o hostname quase na hora, mas o DNS
+          # ainda leva para propagar e os target groups para passar no
+          # primeiro health check — nos testes reais, ~2-3 min. 24×15s dá
+          # 6 min de folga; --max-time evita que uma tentativa trave o job
+          # inteiro se a conexão nem completar.
+          for i in $(seq 1 24); do
+            code=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' "http://$HOST/api/health" || true)
+            [ "$code" = "200" ] && { echo "health OK"; exit 0; }
+            sleep 15
+          done
+          echo "::error::/api/health não respondeu 200 (último: $code)"
+          exit 1
+
+      - name: Resumo
+        if: always()
+        run: |
+          {
+            echo "### Deploy (${{ needs.resolve-environment.outputs.environment }})"
+            echo ""
+            echo "| Item | Valor |"
+            echo "|---|---|"
+            echo "| Imagem | \`${{ vars.ECR_REPOSITORY }}:${{ steps.tag.outputs.versao }}\` (commit \`${{ steps.tag.outputs.sha }}\`) |"
+            echo "| Ambiente | \`${{ needs.resolve-environment.outputs.environment }}\` |"
+            echo "| Cluster | \`${{ vars.EKS_CLUSTER_NAME }}\` |"
+            echo "| Rollout | ${{ steps.rollout.outcome }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,133 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: techchallenge-api
+  labels:
+    app.kubernetes.io/name: techchallenge-api
+    app.kubernetes.io/component: api
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  # Pega o pod que sobe e morre logo depois — sem isto ele contaria como
+  # disponível e o rollout seguiria em frente.
+  minReadySeconds: 10
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0 # capacidade nunca cai durante o deploy
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: techchallenge-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: techchallenge-api
+        app.kubernetes.io/component: api
+    spec:
+      serviceAccountName: techchallenge-api
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      initContainers:
+        # Mesma imagem do app, apenas outro comando — um artefato só do build
+        # até o cluster. `migrate deploy` é idempotente e toma advisory lock no
+        # Postgres, então starts concorrentes (scale-up do HPA) serializam.
+        - name: migrate
+          image: techchallenge-api
+          workingDir: /usr/src/app
+          command: ['node_modules/.bin/prisma']
+          args: ['migrate', 'deploy']
+          envFrom:
+            - configMapRef:
+                name: techchallenge-config
+            - secretRef:
+                name: techchallenge-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ['ALL']
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+      containers:
+        - name: api
+          image: techchallenge-api
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: techchallenge-config
+            - secretRef:
+                name: techchallenge-secrets
+          # startupProbe compra o boot frio do Nest; enquanto ela roda, liveness
+          # e readiness ficam desativadas — por isso nenhuma delas usa
+          # initialDelaySeconds.
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30 # até 60s de orçamento
+          # Liveness NÃO toca no banco de propósito: se o Postgres cair, os pods
+          # devem continuar de pé e se recuperar, não reiniciar em cascata.
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          # Readiness VERIFICA o banco (SELECT 1). Um pod sem banco sai dos
+          # endpoints do Service em vez de receber tráfego que vai falhar.
+          readinessProbe:
+            httpGet:
+              path: /api/health/ready
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              # A remoção do pod dos endpoints é ASSÍNCRONA em relação ao
+              # SIGTERM. Sem esta pausa o processo começa a desligar enquanto
+              # ainda recebe requisições.
+              exec:
+                command: ['sh', '-c', 'sleep 5']
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ['ALL']
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              # O request de CPU é OBRIGATÓRIO: as métricas de Utilization do
+              # HPA são percentual DELE. Sem ele o HPA reporta <unknown> e
+              # nunca escala.
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              # Limite de CPU omitido de propósito: throttling de CFS quota no
+              # event loop do Node vira pico de latência que parece bug de app.
+              memory: 512Mi

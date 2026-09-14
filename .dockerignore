@@ -1,0 +1,47 @@
+# ─── VCS / editor ────────────────────────────────────────────────
+.git
+.gitignore
+.github
+.idea
+.vscode
+.DS_Store
+**/.DS_Store
+
+# ─── Dependências e build (reconstruídos dentro da imagem) ───────
+# CRÍTICO: sem isto o `COPY . .` sobrescreve o node_modules do
+# container (Alpine) com o do host (macOS arm64).
+node_modules
+**/node_modules
+dist
+*.tsbuildinfo
+
+# ─── Segredos: nunca em camada de imagem ────────────────────────
+.env
+.env.*
+!.env.example
+
+# ─── Testes / cobertura / qualidade ─────────────────────────────
+test
+coverage
+coverage-e2e
+coverage-integration
+combined-coverage
+.scannerwork
+sonar-project.properties
+
+# ─── Definições de container e k8s (não vão para dentro) ────────
+Dockerfile
+.dockerignore
+docker-compose*.yml
+k8s
+
+# ─── Docs e tooling ─────────────────────────────────────────────
+README.md
+docs
+docs/apresentacao-fase2.mp4
+docs-2
+.claude
+.opencode
+.mcplens
+opencode.json
+npm-debug.log*

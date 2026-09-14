@@ -1,0 +1,60 @@
+# Exposição pública via ALB. Depende do AWS Load Balancer Controller, instalado
+# pelo repositório de infraestrutura Kubernetes (cluster EKS). Sem o controller
+# este Ingress sobe sem ADDRESS e nada no cluster indica a causa.
+#
+# O tráfego só CHEGA no pod por causa da NetworkPolicy `api-vpc-access`: o
+# default-deny-all do base bloqueia ingress por padrão. Ver networkpolicy-vpc.yaml.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: techchallenge-api
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+
+    # target-type ip: o ALB entrega direto no IP do pod, sem passar pelo
+    # kube-proxy. É o que torna o `preStop` e o deregistration delay abaixo
+    # relevantes — e o que exige a NetworkPolicy de ingress.
+    alb.ingress.kubernetes.io/target-type: ip
+
+    # Um ALB só para todos os Ingress deste grupo. Sem isto, cada Ingress
+    # criaria o seu (~US$ 18/mês cada).
+    alb.ingress.kubernetes.io/group.name: techchallenge
+
+    # Health check no endpoint de liveness (não no de readiness): o ALB decide
+    # se o alvo existe, o Kubernetes decide se ele recebe tráfego. Duplicar a
+    # checagem de banco aqui tiraria todos os alvos do ar num blip do RDS.
+    alb.ingress.kubernetes.io/healthcheck-path: /api/health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: '15'
+    alb.ingress.kubernetes.io/healthy-threshold-count: '2'
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: '3'
+    alb.ingress.kubernetes.io/success-codes: '200'
+
+    # Precisa ser MENOR que o terminationGracePeriodSeconds do pod (30s), senão
+    # o ALB ainda manda tráfego para um alvo que já recebeu SIGKILL.
+    alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=20
+
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+
+    # ─── HTTPS ────────────────────────────────────────────────────────────
+    # Exige domínio + certificado ACM validado por DNS. Enquanto não houver,
+    # o ALB serve HTTP puro — limitação consciente, não esquecimento.
+    # Para habilitar: descomente as três linhas abaixo, troque o listen-ports
+    # acima por '[{"HTTP": 80}, {"HTTPS": 443}]' e preencha o host na regra.
+    #
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:REGION:ACCOUNT:certificate/ID
+    # alb.ingress.kubernetes.io/ssl-redirect: '443'
+    # alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+spec:
+  ingressClassName: alb
+  rules:
+    # Sem `host:` enquanto não há domínio — o ALB responde no DNS dele.
+    # Com domínio, adicionar `host: api.exemplo.com` aqui.
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: techchallenge-api
+                port:
+                  number: 80 # porta do Service, não do container

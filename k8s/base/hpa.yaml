@@ -1,0 +1,36 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: techchallenge-api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: techchallenge-api
+  minReplicas: 2 # deve ser >= PDB minAvailable
+  maxReplicas: 5
+  # SÓ CPU, de propósito. Escalar por memória num app Node é uma catraca: o heap
+  # cresce sob carga e o GC não devolve RSS quando a carga cessa. Como o HPA usa
+  # o MÁXIMO entre as métricas, a memória travaria as réplicas no teto — o que
+  # parece "HPA quebrado" e custa dinheiro. O limite de memória do container já
+  # protege contra vazamento, via OOMKill.
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70 # percentual do REQUEST de cpu
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300 # evita flapping
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60

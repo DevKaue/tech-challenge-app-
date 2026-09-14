@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: techchallenge-config
+data:
+  NODE_ENV: production
+  PORT: '3000'
+  # O @prisma/config transpila o prisma.config.ts via jiti e precisa de HOME
+  # gravável; com readOnlyRootFilesystem, /tmp é o emptyDir montado.
+  HOME: /tmp
+  # Swagger: o base (usado no local) mantém ligado; o overlay aws sobrescreve
+  # para 'false' — o ALB é público e /api/docs expõe toda a API.
+  SWAGGER_ENABLED: 'true'

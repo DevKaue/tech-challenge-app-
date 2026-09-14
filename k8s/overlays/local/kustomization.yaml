@@ -1,0 +1,71 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: techchallenge
+
+resources:
+  - ../../base
+  - namespace.yaml
+  - postgres-statefulset.yaml
+  - postgres-service.yaml
+  - networkpolicy-postgres.yaml
+
+images:
+  - name: techchallenge-api
+    newTag: local
+
+secretGenerator:
+  # Generator puro: o base não aplica Secret nenhum. Como o Kustomize gera este
+  # recurso do zero, ele sufixa o nome com um hash do conteúdo e reescreve as
+  # referências sozinho — editar o .env.secret dispara rolling restart.
+  - name: techchallenge-secrets
+    envs:
+      - .env.secret
+
+patches:
+  # 1 réplica e imagem apenas local. `imagePullPolicy: Never` falha alto em vez
+  # de tentar buscar no Docker Hub em silêncio: a tag :local só existe aqui.
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: techchallenge-api
+      spec:
+        replicas: 1
+        template:
+          spec:
+            initContainers:
+              - name: migrate
+                imagePullPolicy: Never
+                resources:
+                  requests:
+                    cpu: 50m
+                    memory: 192Mi
+            containers:
+              - name: api
+                imagePullPolicy: Never
+                resources:
+                  requests:
+                    cpu: 50m
+                    memory: 192Mi
+
+  - patch: |
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: techchallenge-api
+      spec:
+        minReplicas: 1
+        maxReplicas: 3
+
+  # Com HPA minReplicas=1, um PDB minAvailable=1 bloquearia QUALQUER drain para
+  # sempre. maxUnavailable=1 permite despejar um pod independentemente da
+  # contagem de réplicas.
+  - patch: |
+      apiVersion: policy/v1
+      kind: PodDisruptionBudget
+      metadata:
+        name: techchallenge-api
+      spec:
+        minAvailable: null
+        maxUnavailable: 1

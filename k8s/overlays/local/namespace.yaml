@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: techchallenge
+  labels:
+    # Pod Security Standards por admission control. Diferente das
+    # NetworkPolicies, isto É aplicado no Docker Desktop — é o API server que
+    # valida, não depende de CNI. Um pod sem securityContext adequado é
+    # rejeitado no apply.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: v1.32
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

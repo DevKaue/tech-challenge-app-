@@ -1,0 +1,77 @@
+sequenceDiagram
+    participant C as Cliente
+    participant A as Atendente
+    participant M as Mecanico
+    participant API as API NestJS
+    participant SO as ServiceOrder<br/>Domain Entity
+    participant DB as PostgreSQL
+
+    C->>A: Chega com veículo
+    A->>API: POST /service-orders<br/>{customerId, vehicleId, mileage}
+    API->>SO: create(customerId, vehicleId)
+    SO-->>API: status: RECEIVED
+    API->>DB: INSERT service_order
+    API-->>A: OS #1 criada (RECEIVED)
+    A->>API: PATCH /service-orders/1/mechanic
+    API->>DB: UPDATE mechanicId
+    API-->>A: Mecânico atribuído
+
+    alt Serviço simples (ex.: troca de óleo)
+        A->>API: POST /service-orders/1/estimates
+        API->>SO: requestApproval()
+        SO-->>API: status: WAITING_APPROVAL
+        API->>DB: INSERT estimate + items
+        API->>DB: UPDATE status
+        API-->>A: Orçamento gerado
+    else Serviço complexo (ex.: motor)
+        A->>API: PATCH /service-orders/1/diagnosis
+        API->>SO: startDiagnosis()
+        SO-->>API: status: IN_DIAGNOSIS
+        API->>DB: UPDATE status
+        API-->>A: Diagnóstico iniciado
+        M->>API: PATCH /service-orders/1/diagnosis
+        API->>SO: startDiagnosis()
+        SO-->>API: status: IN_DIAGNOSIS
+        API-->>M: Diagnóstico em andamento
+        M->>API: POST /service-orders/1/estimates
+        API->>SO: requestApproval()
+        SO-->>API: status: WAITING_APPROVAL
+        API->>DB: INSERT estimate + items
+        API->>DB: UPDATE status
+        API-->>M: Orçamento gerado
+    end
+
+    A->>C: Apresenta orçamento
+
+    alt Cliente aprova
+        C-->>A: Aprova orçamento
+        A->>API: PATCH /service-orders/1/start-service
+        API->>SO: startService()
+        SO-->>API: status: IN_EXECUTION
+        API->>DB: UPDATE status
+        API-->>A: Serviço em execução
+        M->>API: PATCH /service-orders/1/finish
+        API->>SO: finish(mechanicId)
+        SO-->>API: status: FINISHED
+        API->>DB: UPDATE status + finishedAt
+        API-->>M: Serviço finalizado
+        A->>API: PATCH /service-orders/1/deliver
+        API->>SO: deliverVehicle()
+        SO-->>API: status: DELIVERED
+        API->>DB: UPDATE status + deliveredAt
+        API-->>A: Veículo liberado
+        A->>C: Veículo entregue
+        A->>API: PATCH /service-orders/1/close
+        API->>SO: close()
+        SO-->>API: status: CLOSED
+        API->>DB: UPDATE status + closedAt
+        API-->>A: OS encerrada
+    else Cliente rejeita
+        C-->>A: Rejeita orçamento
+        A->>API: PATCH /service-orders/1/reject
+        API->>SO: rejectEstimate()
+        SO-->>API: status: IN_DIAGNOSIS
+        API->>DB: UPDATE status
+        API-->>A: Retorna ao diagnóstico
+        Note over A,API: Novo orçamento pode ser gerado<br/>ou veículo liberado sem reparo
+    end

@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: techchallenge-api
+  labels:
+    app.kubernetes.io/name: techchallenge-api
+spec:
+  type: ClusterIP
+  selector:
+    # Precisa casar EXATAMENTE com os labels do pod template do Deployment.
+    # Divergência aqui é falha silenciosa: o Service sobe com ENDPOINTS <none>.
+    app.kubernetes.io/name: techchallenge-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http # porta nomeada: o número no container pode mudar
+      protocol: TCP
