@@ -9,6 +9,15 @@ resources:
   - networkpolicy-vpc.yaml
   - ingress.yaml
 
+secretGenerator:
+  # O Secret é montado no momento do deploy a partir do AWS Secrets Manager
+  # (credenciais do RDS, criado pelo repo techchallenge-infra-db) + as secrets de
+  # aplicação configuradas no environment do GitHub. O arquivo .env.secret é
+  # gerado pelo deploy.yml e é gitignored — nunca entra no repositório.
+  - name: techchallenge-secrets
+    envs:
+      - .env.secret
+
 images:
   - name: techchallenge-api
     # PLACEHOLDERS de propósito — NÃO commitar a conta real aqui.
@@ -18,6 +27,9 @@ images:
     #                 (aws sts get-caller-identity --query Account --output text)
     #   REGION      → a região do cluster, ex.: us-east-1
     #   PLACEHOLDER → a tag publicada no ECR, ex.: v1
+    #
+    # O valor completo do newName é a saída `ecr_url` do repo
+    # techchallenge-infra-k8s (ou `terraform output -raw ecr_url` no monorepo).
     #
     # No CI isso é automático: o deploy.yml roda `kustomize edit set image`.
     # No fluxo manual a edição é à mão — o `kustomize` é um binário separado,
@@ -34,21 +46,12 @@ images:
     newName: ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/techchallenge-api
     newTag: PLACEHOLDER
 
-# O namespace e o Secret são criados AQUI pelo overlay — antigamente vinham do
-# Terraform, que hoje vive nos repositórios de infraestrutura. O secretGenerator
-# lê um `.env.secret` gitignored (ver .env.secret.example); no CI o deploy.yml
-# cria o arquivo a partir das Secrets do ambiente. Nenhum segredo entra no git.
+# O Namespace agora é criado AQUI (namespace.yaml), e não mais pelo Terraform —
+# este repositório não faz parte do repositório de infraestrutura. O Secret vem
+# do secretGenerator acima (montado pelo deploy.yml a partir do Secrets Manager).
 #
-# SEM o StatefulSet do Postgres: o banco é RDS (provisionado no repositório de
-# infra de banco), ou seja, só um DATABASE_URL diferente dentro do Secret.
-
-secretGenerator:
-  # Generator puro: o base não aplica Secret nenhum. Como o Kustomize gera este
-  # recurso do zero, ele sufixa o nome com um hash do conteúdo e reescreve as
-  # referências — editar o .env.secret dispara rolling restart.
-  - name: techchallenge-secrets
-    envs:
-      - .env.secret
+# SEM o StatefulSet do Postgres: o banco é RDS, ou seja, só um DATABASE_URL
+# diferente dentro do Secret.
 
 patches:
   # 3 réplicas e requests maiores que no local — nó dedicado, não notebook.
