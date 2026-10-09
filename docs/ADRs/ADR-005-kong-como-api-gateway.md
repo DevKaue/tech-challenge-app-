@@ -88,6 +88,7 @@ Adotar a **Opção 2**: Kong Ingress Controller com chart `kong/ingress` 0.24.0 
 * [⚠️] `rate-limiting` com `policy: local` conta por pod. Com N réplicas, o teto efetivo é N × limite.
 * [⚠️] Um único segredo HS256 (SSM `/techchallenge/<env>/auth/jwt-secret`) é compartilhado por Lambda, aplicação e Kong. Rotacioná-lo exige redeploy dos três.
 * [⚠️] Sem TLS até haver domínio e certificado ACM (mesma limitação do ALB anterior).
+* [⚠️] No AWS Academy não há IRSA (a conta não permite criar roles): o Kong invoca a Lambda com a LabRole do nó, via IMDSv2. Qualquer pod do nó tem a mesma credencial.
 
 ---
 
