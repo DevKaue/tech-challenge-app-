@@ -1,0 +1,34 @@
+sequenceDiagram
+    autonumber
+    actor C as Cliente
+    participant K as Kong (EKS)
+    participant L as Lambda auth (CPF)
+    participant DB as RDS PostgreSQL
+    participant A as API NestJS
+
+    C->>K: POST /auth {cpf}
+    K->>K: rate-limiting por IP, X-Correlation-ID
+    K->>L: Invoke (aws-lambda, IRSA, evento v1.0)
+    L->>L: valida dígitos do CPF
+    L->>DB: SELECT customer WHERE document = cpf AND document_type = 'CPF'
+    DB-->>L: cliente (status, deleted_at)
+    alt cliente ativo
+        L-->>K: 200 {access_token (iss=techchallenge-auth-lambda, type=customer), expires_in}
+        K-->>C: 200 token
+    else inexistente ou inelegível
+        L-->>K: 401 (mesma resposta nos dois casos)
+        K-->>C: 401
+    end
+
+    C->>K: POST /api/service-orders (Authorization: Bearer token)
+    K->>K: plugin jwt: consumer pelo iss, assinatura HS256, exp
+    alt token inválido ou expirado
+        K-->>C: 401 (não chega na API)
+    else token válido
+        K->>A: encaminha com X-Correlation-ID
+        A->>A: JwtStrategy revalida token e autoriza
+        A->>DB: INSERT service_order
+        DB-->>A: OS criada
+        A-->>K: 201
+        K-->>C: 201 OS aberta
+    end

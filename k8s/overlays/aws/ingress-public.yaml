@@ -1,0 +1,108 @@
+# Rotas públicas no Kong (sem plugin jwt). Um Ingress por grupo de métodos,
+# porque konghq.com/methods vale para o Ingress inteiro.
+#
+# Paths que começam com /~ são regex no Kong Ingress Controller 3.x. A
+# regex-priority alta garante que estas rotas vençam o prefixo /api do
+# ingress-protected.yaml.
+#
+# Depende do Kong instalado pelo repositório de infraestrutura Kubernetes
+# (terraform/kong.tf). O tráfego chega no pod pela NetworkPolicy api-vpc-access.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: techchallenge-public-get
+  annotations:
+    konghq.com/strip-path: 'false'
+    konghq.com/methods: GET
+    konghq.com/regex-priority: '100'
+    konghq.com/plugins: correlation-id,prometheus
+spec:
+  ingressClassName: kong
+  rules:
+    - http:
+        paths:
+          - path: /~/api/health(/ready)?$
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: techchallenge-api
+                port:
+                  number: 80
+          # Swagger: o patch do ConfigMap abaixo liga SWAGGER_ENABLED só para a demonstração.
+          - path: /api/docs
+            pathType: Prefix
+            backend:
+              service:
+                name: techchallenge-api
+                port:
+                  number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: techchallenge-public-login
+  annotations:
+    konghq.com/strip-path: 'false'
+    konghq.com/methods: POST
+    konghq.com/regex-priority: '100'
+    konghq.com/plugins: rate-limit-auth,correlation-id,prometheus
+spec:
+  ingressClassName: kong
+  rules:
+    - http:
+        paths:
+          - path: /~/api/auth/login$
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: techchallenge-api
+                port:
+                  number: 80
+---
+# Webhook do orçamento: público no gateway, protegido por HMAC
+# (x-webhook-signature) dentro da aplicação.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: techchallenge-public-webhook
+  annotations:
+    konghq.com/strip-path: 'false'
+    konghq.com/methods: POST
+    konghq.com/regex-priority: '100'
+    konghq.com/plugins: correlation-id,prometheus
+spec:
+  ingressClassName: kong
+  rules:
+    - http:
+        paths:
+          - path: /~/api/service-orders/estimates/[^/]+/external-status$
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: techchallenge-api
+                port:
+                  number: 80
+---
+# Login de cliente por CPF: o plugin aws-lambda responde no próprio Kong e a
+# requisição nunca chega ao backend abaixo. O backend existe só porque o Ingress
+# exige um.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: techchallenge-auth-cpf
+  annotations:
+    konghq.com/strip-path: 'false'
+    konghq.com/methods: POST
+    konghq.com/plugins: auth-lambda,rate-limit-auth,correlation-id,prometheus
+spec:
+  ingressClassName: kong
+  rules:
+    - http:
+        paths:
+          - path: /auth
+            pathType: Exact
+            backend:
+              service:
+                name: techchallenge-api
+                port:
+                  number: 80

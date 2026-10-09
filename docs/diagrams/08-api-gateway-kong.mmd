@@ -1,0 +1,30 @@
+graph LR
+    CLIENT[Cliente / Funcionário]
+
+    subgraph AWS["AWS us-east-1"]
+        NLB[NLB<br/>internet-facing]
+
+        subgraph EKS["EKS"]
+            subgraph NSKONG["namespace kong"]
+                KIC[Kong Ingress Controller<br/>observa Ingress / KongPlugin / KongConsumer]
+                GW[Kong Gateway x2..5 HPA<br/>jwt · rate-limiting · correlation-id · prometheus · aws-lambda]
+            end
+            subgraph NSAPP["namespace techchallenge"]
+                API[techchallenge-api<br/>NestJS x3..10 HPA]
+            end
+        end
+
+        LAMBDA[Lambda techchallenge-auth-env<br/>valida CPF e emite JWT]
+        RDS[(RDS PostgreSQL 15)]
+        SSM[SSM /techchallenge/env/auth/jwt-secret]
+    end
+
+    CLIENT -->|HTTP| NLB --> GW
+    KIC -->|config DB-less| GW
+    GW -->|POST /auth · aws-lambda IRSA| LAMBDA
+    GW -->|/api/* · JWT validado| API
+    LAMBDA --> RDS
+    API --> RDS
+    SSM -.->|segredo HS256| LAMBDA
+    SSM -.->|deploy: Secret do app + credenciais jwt| API
+    SSM -.->|deploy: KongConsumers| KIC
