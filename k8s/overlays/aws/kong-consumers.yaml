@@ -1,0 +1,22 @@
+# Um consumer por emissor de token. As credenciais jwt (key = valor da claim iss,
+# algorithm, secret) vêm dos Secrets gerados no kustomization.yaml a partir do
+# segredo JWT do SSM — o mesmo que a aplicação e a Lambda usam.
+apiVersion: configuration.konghq.com/v1
+kind: KongConsumer
+metadata:
+  name: app-staff
+  annotations:
+    kubernetes.io/ingress.class: kong
+username: app-staff
+credentials:
+  - kong-jwt-app-staff
+---
+apiVersion: configuration.konghq.com/v1
+kind: KongConsumer
+metadata:
+  name: auth-lambda
+  annotations:
+    kubernetes.io/ingress.class: kong
+username: auth-lambda
+credentials:
+  - kong-jwt-auth-lambda

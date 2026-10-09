@@ -137,11 +137,16 @@ jobs:
           # deploy). Para validar o schema, copia-se o exemplo com valores
           # placeholder — o kustomize só precisa do arquivo existir.
           cp k8s/overlays/aws/.env.secret.example k8s/overlays/aws/.env.secret
+          cp k8s/overlays/aws/.env.kong-jwt.example k8s/overlays/aws/.env.kong-jwt
           cp k8s/overlays/local/.env.secret.example k8s/overlays/local/.env.secret
           kustomize build k8s/overlays/local \
             | kubeconform -kubernetes-version 1.32.2 -strict -summary
+          # KongPlugin/KongConsumer não estão no schema padrão: o catálogo de CRDs
+          # valida os campos deles em vez de ignorá-los.
           kustomize build k8s/overlays/aws \
-            | kubeconform -kubernetes-version 1.32.0 -strict -summary
+            | kubeconform -kubernetes-version 1.32.0 -strict -summary \
+                -schema-location default \
+                -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 
       # Impede que uma conta AWS real volte para o overlay. É fácil regredir:
       # `kustomize edit set image` do deploy manual modifica o arquivo, e um
@@ -152,9 +157,9 @@ jobs:
             || { echo "::error::conta AWS real commitada no overlay — restaure ACCOUNT_ID/REGION"; exit 1; }
 
       # A falha que derrubaria a produção em silêncio: default-deny sem a
-      # política que libera o ALB. Ver k8s/overlays/aws/networkpolicy-vpc.yaml.
+      # política que libera o Kong. Ver k8s/overlays/aws/networkpolicy-vpc.yaml.
       - name: Garantir que a API tem NetworkPolicy de acesso à VPC
         run: |
           kustomize build k8s/overlays/aws \
             | grep -q "name: api-vpc-access" \
-            || { echo "::error::api-vpc-access ausente — o ALB não alcançaria os pods"; exit 1; }
+            || { echo "::error::api-vpc-access ausente — o Kong não alcançaria os pods"; exit 1; }

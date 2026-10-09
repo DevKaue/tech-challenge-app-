@@ -7,7 +7,10 @@ resources:
   - ../../base
   - namespace.yaml
   - networkpolicy-vpc.yaml
-  - ingress.yaml
+  - ingress-public.yaml
+  - ingress-protected.yaml
+  - kong-plugins.yaml
+  - kong-consumers.yaml
 
 secretGenerator:
   # O Secret é montado no momento do deploy a partir do AWS Secrets Manager
@@ -17,6 +20,32 @@ secretGenerator:
   - name: techchallenge-secrets
     envs:
       - .env.secret
+
+  # Credenciais jwt dos KongConsumers (kong-consumers.yaml). O .env.kong-jwt
+  # (só a linha secret=...) é gerado pelo deploy.yml a partir do mesmo segredo
+  # SSM do JWT_SECRET do app, e é gitignored como o .env.secret.
+  # Sem hash no nome: o KongConsumer referencia o Secret por nome literal, e o
+  # Kustomize não sabe reescrever referências dentro de CRDs.
+  - name: kong-jwt-app-staff
+    options:
+      disableNameSuffixHash: true
+      labels:
+        konghq.com/credential: jwt
+    literals:
+      - key=techchallenge-app
+      - algorithm=HS256
+    envs:
+      - .env.kong-jwt
+  - name: kong-jwt-auth-lambda
+    options:
+      disableNameSuffixHash: true
+      labels:
+        konghq.com/credential: jwt
+    literals:
+      - key=techchallenge-auth-lambda
+      - algorithm=HS256
+    envs:
+      - .env.kong-jwt
 
 images:
   - name: techchallenge-api
@@ -109,7 +138,7 @@ patches:
         maxUnavailable: 1
 
   # Swagger LIGADO — decisão temporária, só para a demonstração do Tech
-  # Challenge. O ALB é público e sem TLS, então /api/docs expõe toda a
+  # Challenge. O Kong (NLB) é público e sem TLS, então /api/docs expõe toda a
   # superfície da API (inclusive rotas de escrita) em HTTP claro, para qualquer
   # um na internet.
   #

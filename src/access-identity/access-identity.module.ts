@@ -29,7 +29,8 @@ import { createProvider } from '@/common/infra/di/create-provider';
     PassportModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET,
-      signOptions: { expiresIn: '1h' },
+      // O plugin jwt do Kong localiza o consumer pela claim iss; mudar aqui exige mudar o consumer app-staff.
+      signOptions: { expiresIn: '1h', issuer: 'techchallenge-app' },
     }),
   ],
   providers: [
