@@ -46,7 +46,35 @@ Remover a validação do app também deixaria a API aberta a quem alcançasse o 
   - **Contra:** exigiria publicar e rotacionar o JWKS, e mudar o `JwtStrategy` do app.
   - **Por que fica para depois:** com o segredo restrito ao SSM e a IAM, o ganho não compensa nesta fase. É o próximo passo natural, se houver rotação frequente.
 
+## Acesso do cliente na aplicação
+
+O `JwtStrategy` aceita só HS256 e só os dois emissores da tabela acima, e escolhe a
+validação pelo `iss`:
+
+- `techchallenge-app`: busca o `sub` em `users`, como antes;
+- `techchallenge-auth-lambda`: exige `type: customer` e busca o `sub` em `customers`, com a
+  mesma regra da Lambda (existe, `deleted_at` nulo, `status = ACTIVE`). Isso fecha a janela
+  de até 1 h entre bloquear um cliente e ele perder o acesso, que o Kong sozinho não fecha.
+
+O cliente é **negado por padrão** pelo `JwtAuthGuard` (403). Várias rotas de OS só têm o
+`JwtAuthGuard`, sem `@Roles`, e sem essa regra um token de cliente mudaria status ou
+encerraria OS. Uma rota só abre para cliente com `@CustomerAccess`, que também confere a
+posse do recurso:
+
+| Rota | O que o cliente faz | Posse conferida por |
+|---|---|---|
+| `GET /api/service-orders/:id` | Consulta a própria OS, com histórico | `service_orders.customer_id` |
+| `GET /api/service-orders/:id/status` | Consulta o status da própria OS | `service_orders.customer_id` |
+| `PATCH /api/service-orders/estimates/:estimateId/status` | Aprova ou rejeita o orçamento da própria OS | `customer_id` da OS do orçamento |
+
+OS ou orçamento de outro cliente recebe **404**, não 403, pelo mesmo motivo da Lambda não
+distinguir CPF inexistente de inelegível. Todas as outras rotas, incluindo `GET
+/api/service-orders` e `GET /api/auth/me`, continuam só para funcionário.
+
+A coluna `customers.status` (`ACTIVE`, `INACTIVE`, `BLOCKED`, padrão `ACTIVE`) vem da
+migration `20261009230000_add_status_to_customers`. Os valores são os mesmos do enum
+`CustomerStatus` da Lambda.
+
 ## Pendências
 
-- A aplicação ainda rejeita token de cliente: o `ValidateAuthenticatedUserUseCase` só procura o `sub` em `users`. É preciso definir quais rotas o cliente acessa (por exemplo, consultar e aprovar as próprias OS) antes de aceitar `type: customer`.
-- Falta a migration da coluna `status` em `customers`, que a Lambda já consulta.
+- Listagem das OS do próprio cliente (`GET /api/service-orders` filtrado por `customer_id`), se a demonstração precisar.

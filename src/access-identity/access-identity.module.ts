@@ -5,6 +5,9 @@ import { PrismaService } from '@/common/infra/prisma/prisma.service';
 import { USER_REPOSITORY } from '@service-orders/domain/acls/user-repository.interface';
 import { LoginUseCase } from './application/usecases/login.usecase';
 import { ValidateAuthenticatedUserUseCase } from './application/usecases/validate-authenticated-user.usecase';
+import { ValidateAuthenticatedCustomerUseCase } from './application/usecases/validate-authenticated-customer.usecase';
+import { CUSTOMER_IDENTITY_REPOSITORY } from './domain/contracts/customer-identity-repository.interface';
+import { PrismaCustomerIdentityRepository } from './infra/repositories/prisma-customer-identity.repository';
 import { ACCESS_IDENTITY_REPOSITORY } from './domain/contracts/access-identity-repository.interface';
 import type { AccessIdentityRepository } from './domain/contracts/access-identity-repository.interface';
 import { PASSWORD_HASHER } from './domain/contracts/password-hasher.interface';
@@ -44,12 +47,19 @@ import { createProvider } from '@/common/infra/di/create-provider';
     createProvider(ValidateAuthenticatedUserUseCase, [
       ACCESS_IDENTITY_REPOSITORY,
     ]),
+    createProvider(ValidateAuthenticatedCustomerUseCase, [
+      CUSTOMER_IDENTITY_REPOSITORY,
+    ]),
     JwtStrategy,
     JwtAuthGuard,
     RolesGuard,
     {
       provide: ACCESS_IDENTITY_REPOSITORY,
       useClass: PrismaAccessIdentityRepository,
+    },
+    {
+      provide: CUSTOMER_IDENTITY_REPOSITORY,
+      useClass: PrismaCustomerIdentityRepository,
     },
     {
       provide: PASSWORD_HASHER,

@@ -15,6 +15,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/access-identity/infra/guards/jwt-auth.guard';
+import { CustomerAccess } from '@/access-identity/infra/decorators/customer-access.decorator';
 import { adaptNestRoute } from '@/common/presentation/adapters/nest-route.adapter';
 import type { HttpResponse } from '@/common/application/contracts/http';
 import { DomainExceptionFilter } from '@/common/infra/filters/domain-exception.filter';
@@ -72,7 +73,11 @@ export class EstimateInfraController {
   }
 
   @Patch('estimates/:estimateId/status')
-  @ApiOperation({ summary: 'Aprova ou rejeita o orcamento' })
+  @CustomerAccess('estimate', 'estimateId')
+  @ApiOperation({
+    summary:
+      'Aprova ou rejeita o orcamento (funcionario ou o cliente dono da OS)',
+  })
   @ApiOkResponse({ type: EstimateResponseDto })
   updateEstimateStatus(
     @Param('estimateId') estimateId: string,

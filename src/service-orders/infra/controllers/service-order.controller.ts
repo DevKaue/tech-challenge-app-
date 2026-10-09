@@ -19,6 +19,7 @@ import {
 import type { AuthenticatedRequest } from '@/access-identity/presentation/authenticated-request';
 import type { RequestWithUser } from '@/access-identity/presentation/interfaces/authenticated-user.interface';
 import { JwtAuthGuard } from '@/access-identity/infra/guards/jwt-auth.guard';
+import { CustomerAccess } from '@/access-identity/infra/decorators/customer-access.decorator';
 import { adaptNestRoute } from '@/common/presentation/adapters/nest-route.adapter';
 import type { HttpResponse } from '@/common/application/contracts/http';
 import { DomainExceptionFilter } from '@/common/infra/filters/domain-exception.filter';
@@ -84,7 +85,11 @@ export class ServiceOrderInfraController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Detalha uma OS com historico de status' })
+  @CustomerAccess('service-order', 'id')
+  @ApiOperation({
+    summary:
+      'Detalha uma OS com historico de status (funcionario ou o cliente dono)',
+  })
   @ApiOkResponse({ type: ServiceOrderResponseDto })
   findOne(
     @Param('id') id: string,
@@ -97,7 +102,10 @@ export class ServiceOrderInfraController {
   }
 
   @Get(':id/status')
-  @ApiOperation({ summary: 'Consulta do status atual da OS' })
+  @CustomerAccess('service-order', 'id')
+  @ApiOperation({
+    summary: 'Consulta do status atual da OS (funcionario ou o cliente dono)',
+  })
   @ApiOkResponse({ type: ServiceOrderStatusDto })
   findStatus(
     @Param('id') id: string,

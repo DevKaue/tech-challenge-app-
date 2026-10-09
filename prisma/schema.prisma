@@ -55,6 +55,16 @@ enum DocumentType {
   RNE
 }
 
+// Ciclo de vida do cliente, consultado pela Lambda de autenticação por CPF
+// (techchallenge-auth-<env>) e pelo JwtStrategy: só ACTIVE recebe e usa token.
+// Os valores são contrato com o enum CustomerStatus da Lambda; um valor novo
+// aqui sem existir lá faz a Lambda responder 503 em vez de emitir token.
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
 model Customer {
   id            String         @id @default(uuid()) @map("id")
   document      String         @map("document")
@@ -62,6 +72,7 @@ model Customer {
   name          String         @map("name")
   email         String?
   phone         String?
+  status        CustomerStatus @default(ACTIVE) @map("status")
   vehicles      Vehicle[]
   serviceOrders ServiceOrder[]
   createdAt     DateTime       @default(now()) @map("created_at")
