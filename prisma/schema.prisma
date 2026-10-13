@@ -55,6 +55,12 @@ enum DocumentType {
   RNE
 }
 
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
 model Customer {
   id            String         @id @default(uuid()) @map("id")
   document      String         @map("document")
@@ -62,6 +68,8 @@ model Customer {
   name          String         @map("name")
   email         String?
   phone         String?
+  // Lido pela Lambda de autenticação por CPF: só ACTIVE recebe token.
+  status        CustomerStatus @default(ACTIVE) @map("status")
   vehicles      Vehicle[]
   serviceOrders ServiceOrder[]
   createdAt     DateTime       @default(now()) @map("created_at")
