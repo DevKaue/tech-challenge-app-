@@ -14,7 +14,7 @@ k8s/
 |---|---|
 | **Subir** (local ou AWS), passo a passo | [`../QUICKSTART.md`](../QUICKSTART.md) |
 | Criar a infra AWS (VPC, EKS, ECR, ALB) | repo `techchallenge-infra-k8s` |
-| Criar o banco (RDS + Secrets Manager) | repo `techchallenge-infra-db` |
+| Criar o banco (RDS + parâmetros no SSM) | repo `techchallenge-infra-db` |
 
 Este arquivo tem só o que não cabe nos outros: contrato de configuração,
 validação e CI/CD.
@@ -34,7 +34,7 @@ DATABASE_URL   JWT_SECRET   PASSWORD_SALT   WEBHOOK_SECRET
 | Overlay | De onde vêm |
 |---|---|
 | `local` | `secretGenerator` lendo `.env.secret` (gitignored) |
-| `aws` | `secretGenerator` lendo `.env.secret`, montado pelo `deploy.yml` a partir do Secrets Manager (RDS) + secrets de aplicação do environment do GitHub; o namespace é criado pelo próprio overlay (`namespace.yaml`) |
+| `aws` | `secretGenerator` lendo `.env.secret`, montado pelo `deploy.yml` a partir do SSM (RDS e segredo JWT) + secrets de aplicação do environment do GitHub; o namespace é criado pelo próprio overlay (`namespace.yaml`) |
 
 O **base não aplica Secret nenhum**, de propósito: se aplicasse placeholders,
 cada `apply -k overlays/aws` do CI sobrescreveria o Secret real e derrubaria a
@@ -87,9 +87,11 @@ overlay `aws` — sem ela o ALB não alcança os pods.
 | Workflow | Dispara em | Faz |
 |---|---|---|
 | `ci.yml` | PR e push em `develop`/`main` | lint, typecheck, build, testes unitários e de integração, build da imagem e validação dos manifestos com `kubeconform` |
-| `deploy.yml` | push em `develop`/`main` (ou manual) | push no ECR com a tag do SHA, monta o Secret a partir do Secrets Manager, `apply -k`, `rollout status`, **`rollout undo` automático** se falhar, e smoke test em `/api/health` |
+| `deploy.yml` | push em `develop`/`main` (ou manual) | push no ECR com a tag do SHA, monta o Secret a partir do SSM, `apply -k`, `rollout status`, **`rollout undo` automático** se falhar, e smoke test em `/api/health` |
 
-O deploy autentica por **OIDC** — não existe `AWS_ACCESS_KEY_ID` no repositório.
+O deploy autentica por **OIDC** quando existe o secret `AWS_DEPLOY_ROLE`. No AWS
+Academy, que não tem OIDC, usa as credenciais temporárias do lab (`AWS_LAB_*`),
+que expiram a cada sessão.
 Os valores saem dos outputs do Terraform dos repos de infra. Configure em
 *Settings → Environments* (crie `production` e `staging`) e *Settings → Secrets
 and variables → Actions*:
@@ -97,13 +99,17 @@ and variables → Actions*:
 | Tipo | Nome | Valor |
 |---|---|---|
 | Secret | `AWS_DEPLOY_ROLE` | output `github_app_deploy_role_arn` do repo `techchallenge-infra-k8s` |
-| Secret | `DB_SECRET_ID` | output `db_secret_arn` do repo `techchallenge-infra-db` |
-| Secret | `JWT_SECRET` | gerado manualmente (ex.: `openssl rand -base64 64`) — **fixo**, protege os tokens |
+| Secret | `AWS_LAB_ACCESS_KEY_ID`, `AWS_LAB_SECRET_ACCESS_KEY`, `AWS_LAB_SESSION_TOKEN` | credenciais do Learner Lab (só sem `AWS_DEPLOY_ROLE`) |
 | Secret | `PASSWORD_SALT` | gerado manualmente — **fixo**: trocá-lo invalida todas as senhas |
 | Secret | `WEBHOOK_SECRET` | gerado manualmente |
 | Variable | `AWS_REGION` | `us-east-1` |
 | Variable | `ECR_REPOSITORY` | output `ecr_repository_name` |
 | Variable | `EKS_CLUSTER_NAME` | output `cluster_name` |
+
+O banco e o segredo JWT não são secrets do GitHub: o deploy lê
+`/techchallenge/<env>/db/{host,port,name,username,password}` (publicados pelo
+repo do banco) e `/techchallenge/<env>/auth/jwt-secret` (repo da infra
+Kubernetes) no SSM, com `<env>` = `staging` na `develop` e `prod` na `main`.
 
 Em `production`, exija aprovação manual no environment *Settings*.
 

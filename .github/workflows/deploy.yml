@@ -29,8 +29,9 @@ env:
   ENVIRONMENT: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
   NAMESPACE: ${{ github.ref == 'refs/heads/main' && 'techchallenge' || 'techchallenge-staging' }}
   DEPLOYMENT: techchallenge-api
-  # Nome do ambiente no repositório de infraestrutura Kubernetes (var.environment):
-  # compõe o caminho SSM do segredo JWT e o nome da Lambda de autenticação.
+  # Nome do ambiente nos repositórios de infraestrutura Kubernetes e do banco
+  # (var.environment): compõe os caminhos SSM do segredo JWT e do banco e o
+  # nome da Lambda de autenticação.
   INFRA_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'staging' }}
 
 jobs:
@@ -54,9 +55,9 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE }}
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-access-key-id: ${{ secrets.AWS_LAB_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_LAB_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_LAB_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login no ECR
@@ -82,22 +83,28 @@ jobs:
         run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
 
       # O Secret do k8s não vive mais no git nem no overlay: o repositório
-      # infra-db publica as credenciais do Postgres no Secrets Manager, e este
-      # passo materializa o Secret do Kubernetes a partir delas + das secrets
-      # de aplicação configuradas no environment do GitHub.
+      # do banco (tech-challenge-database-infra) publica as credenciais do
+      # Postgres no SSM, em /techchallenge/<env>/db/*, e este passo materializa
+      # o Secret do Kubernetes a partir delas + das secrets de aplicação
+      # configuradas no environment do GitHub. A senha é SecureString e já é
+      # gerada sem caracteres que quebrariam a DATABASE_URL.
       # O JWT_SECRET vem do SSM (repositório de infraestrutura Kubernetes),
       # não mais de um secret do GitHub: é o mesmo valor da Lambda e do Kong.
       # Isso mantém a regra "o base não aplica Secret nenhum" e o overlap local
       # (secretGenerator) intocado — só o aws muda de fonte.
       - name: Montar Secret da aplicação
         run: |
-          DB=$(aws secretsmanager get-secret-value \
-            --secret-id "${{ secrets.DB_SECRET_ID }}" --query SecretString --output text)
-          DB_HOST=$(echo "$DB" | jq -r .host)
-          DB_PORT=$(echo "$DB" | jq -r .port)
-          DB_NAME=$(echo "$DB" | jq -r .dbname)
-          DB_USER=$(echo "$DB" | jq -r .username)
-          DB_PASS=$(echo "$DB" | jq -r .password)
+          db_param() {
+            aws ssm get-parameter --with-decryption \
+              --name "/techchallenge/${INFRA_ENV}/db/$1" \
+              --query Parameter.Value --output text
+          }
+          DB_HOST=$(db_param host)
+          DB_PORT=$(db_param port)
+          DB_NAME=$(db_param name)
+          DB_USER=$(db_param username)
+          DB_PASS=$(db_param password)
+          echo "::add-mask::$DB_PASS"
 
           # Mesmo segredo que a Lambda de CPF usa para assinar e que os
           # KongConsumers usam para validar: um valor divergente faz o Kong
