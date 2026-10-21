@@ -13,8 +13,8 @@ resources:
   - kong-consumers.yaml
 
 secretGenerator:
-  # O Secret é montado no momento do deploy a partir do AWS Secrets Manager
-  # (credenciais do RDS, criado pelo repo techchallenge-infra-db) + as secrets de
+  # O Secret é montado no momento do deploy a partir do SSM (credenciais do
+  # RDS, publicadas pelo repo tech-challenge-database-infra) + as secrets de
   # aplicação configuradas no environment do GitHub. O arquivo .env.secret é
   # gerado pelo deploy.yml e é gitignored — nunca entra no repositório.
   - name: techchallenge-secrets
@@ -77,7 +77,7 @@ images:
 
 # O Namespace agora é criado AQUI (namespace.yaml), e não mais pelo Terraform —
 # este repositório não faz parte do repositório de infraestrutura. O Secret vem
-# do secretGenerator acima (montado pelo deploy.yml a partir do Secrets Manager).
+# do secretGenerator acima (montado pelo deploy.yml a partir do SSM).
 #
 # SEM o StatefulSet do Postgres: o banco é RDS, ou seja, só um DATABASE_URL
 # diferente dentro do Secret.
