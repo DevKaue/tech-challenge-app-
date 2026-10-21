@@ -1,0 +1,70 @@
+# Plugins do Kong usados pelos Ingress deste overlay (anotação konghq.com/plugins).
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: jwt-auth
+plugin: jwt
+config:
+  # O consumer é escolhido pela claim iss: techchallenge-app (funcionário, emitido
+  # pelo /api/auth/login) ou techchallenge-auth-lambda (cliente, emitido pela Lambda).
+  key_claim_name: iss
+  claims_to_verify: [exp]
+  header_names: [authorization]
+  # Preflight CORS (OPTIONS) não leva Authorization; exigir token nele quebra
+  # chamadas de browser.
+  run_on_preflight: false
+---
+# POST /auth vira uma invocação direta da Lambda de CPF, com a credencial IRSA
+# dos pods do Kong (ou, no AWS Academy, a LabRole do nó). O function_name é
+# sobrescrito por ambiente no deploy.yml.
+#
+# awsgateway_compatible envia o evento no formato do API Gateway REST (payload
+# v1.0); o handler da Lambda precisa aceitar esse formato.
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: auth-lambda
+plugin: aws-lambda
+config:
+  function_name: techchallenge-auth-staging
+  aws_region: us-east-1
+  awsgateway_compatible: true
+  is_proxy_integration: true
+  timeout: 10000
+  # Sem IRSA (AWS Academy/LabRole), a credencial vem do metadata do nó, que no
+  # EKS exige IMDSv2. Com IRSA esta opção não é usada.
+  aws_imds_protocol_version: v2
+---
+# Contra enumeração de CPF e força bruta de senha. policy local conta por pod do
+# gateway: com N réplicas o teto efetivo é N x minute. Aceitável aqui; o exato
+# exigiria policy redis.
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: rate-limit-auth
+plugin: rate-limiting
+config:
+  minute: 10
+  policy: local
+  limit_by: ip
+---
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: correlation-id
+plugin: correlation-id
+config:
+  header_name: X-Correlation-ID
+  generator: uuid#counter
+  echo_downstream: true
+---
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: prometheus
+plugin: prometheus
+config:
+  status_code_metrics: true
+  latency_metrics: true
+  bandwidth_metrics: true
+  upstream_health_metrics: true

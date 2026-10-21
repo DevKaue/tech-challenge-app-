@@ -1,6 +1,6 @@
 # Tech Challenge - Sistema de Oficina Mecânica
 
-Repositório do **item 4 — Aplicação principal executando em Kubernetes**: API
+**Aplicação principal executando em Kubernetes**: API
 NestJS modular, banco PostgreSQL com Prisma, autenticação JWT, documentação
 Swagger, testes automatizados, manifestos Kustomize e CI/CD com deploy em
 Kubernetes (homologação e produção).
@@ -223,15 +223,3 @@ npm run test:all
 npm run test:all:cov
 ```
 - Depois abra o arquivo `coverage/lcov-report/index.html` no seu navegador
-
-## Apresentação TechChallenge fase 2
-
-Assista à apresentação da Fase 2 do Tech Challenge no YouTube:
-
-https://youtu.be/QETAfdl-jHI?feature=shared
-
-### Fallback de visualização
-
-Se a visualização no YouTube falhar, use o arquivo local da apresentação:
-
-[docs/apresentacao-fase2.mp4](docs/apresentacao-fase2.mp4)

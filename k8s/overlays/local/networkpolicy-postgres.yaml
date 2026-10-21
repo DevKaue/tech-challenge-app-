@@ -1,0 +1,41 @@
+# Acesso ao banco no ambiente LOCAL: o Postgres é um pod no mesmo namespace,
+# então as regras são pod-a-pod. No overlay aws o banco é RDS (externo ao
+# cluster) e estas regras não se aplicam — lá vale o ipBlock.
+
+# Egress da API para o pod do Postgres.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-egress-postgres
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: techchallenge-api
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+      ports:
+        - port: 5432
+          protocol: TCP
+---
+# Ingress no Postgres apenas a partir da API.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-ingress-api
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: techchallenge-api
+      ports:
+        - port: 5432
+          protocol: TCP

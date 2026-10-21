@@ -1,0 +1,21 @@
+# Todo o resto de /api exige um JWT válido no Kong (plugin jwt-auth), antes de
+# chegar na aplicação — que valida o token de novo (defesa em profundidade).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: techchallenge-protected
+  annotations:
+    konghq.com/strip-path: 'false'
+    konghq.com/plugins: jwt-auth,correlation-id,prometheus
+spec:
+  ingressClassName: kong
+  rules:
+    - http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: techchallenge-api
+                port:
+                  number: 80

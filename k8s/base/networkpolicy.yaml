@@ -1,0 +1,48 @@
+# ATENÇÃO — LEIA ANTES DE TESTAR ISOLAMENTO LOCALMENTE:
+# NetworkPolicy é implementada pelo CNI, não pelo Kubernetes. O Docker Desktop
+# usa kube-proxy + bridge nativa, SEM Calico/Cilium — estas políticas são
+# aceitas pelo API server e SILENCIOSAMENTE NÃO APLICADAS ali. Elas valem de
+# verdade no EKS (VPC CNI com network policy habilitada) ou num kind com Calico.
+# Não conclua "o isolamento funciona" a partir de um teste no Docker Desktop.
+#
+# Aqui ficam só as políticas válidas em QUALQUER ambiente. As regras de acesso
+# ao banco dependem de onde ele está e vivem nos overlays:
+#   - local: overlays/local/networkpolicy-postgres.yaml  (pod-a-pod)
+#   - aws:   overlays/aws/networkpolicy-vpc.yaml         (ipBlock: ALB e RDS)
+
+# 1) Default-deny: base de tudo. Sem isto, qualquer pod do cluster alcança o
+#    banco na 5432.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+spec:
+  podSelector: {} # todos os pods do namespace
+  policyTypes: [Ingress, Egress]
+  # sem regras = nega tudo
+---
+# 2) DNS: sem esta liberação nenhum nome resolve e TUDO quebra depois do
+#    default-deny. UDP e TCP (respostas grandes usam TCP).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+# Não há regra de ingress HTTP para a API de propósito. O acesso local é via
+# `kubectl port-forward`, que passa pelo kubelet e não é afetado por
+# NetworkPolicy. Uma regra `from: [{namespaceSelector: {}}]` liberaria o
+# cluster inteiro — pareceria um controle sem ser um. A liberação correta,
+# apontando para o namespace do ingress controller, entra no overlay `aws`
+# junto com o Ingress, quando o controller existir.

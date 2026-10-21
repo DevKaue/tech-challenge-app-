@@ -1,0 +1,37 @@
+stateDiagram-v2
+    [*] --> RECEIVED
+
+    RECEIVED --> RECEIVED : assignMechanic
+    RECEIVED --> IN_DIAGNOSIS : startDiagnosis
+    RECEIVED --> WAITING_APPROVAL : requestApproval
+
+    IN_DIAGNOSIS --> IN_DIAGNOSIS : startDiagnosis<br/>(reabrir)
+    IN_DIAGNOSIS --> WAITING_APPROVAL : requestApproval<br/>(criar orçamento)
+
+    WAITING_APPROVAL --> IN_EXECUTION : startService<br/>(aprovar orçamento)
+    WAITING_APPROVAL --> IN_DIAGNOSIS : rejectEstimate<br/>(retorna diagnóstico)
+
+    IN_EXECUTION --> FINISHED : finish<br/>(mecânico atribuído)
+
+    FINISHED --> DELIVERED : deliverVehicle
+
+    DELIVERED --> CLOSED : close
+
+    CLOSED --> [*]
+
+    note right of RECEIVED
+        OS recém-criada,
+        aguardando triagem
+    end note
+
+    note right of WAITING_APPROVAL
+        Orçamento gerado,
+        aguardando aprovação
+        do cliente
+    end note
+
+    note right of IN_EXECUTION
+        Serviço em andamento,
+        apenas o mecânico
+        atribuído pode finalizar
+    end note

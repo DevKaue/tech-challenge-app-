@@ -1,0 +1,6 @@
+export enum EstimateStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  NEGOTIATED = 'NEGOTIATED',
+}

@@ -1,0 +1,165 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+# Um PR atualizado cancela a execução anterior — não faz sentido pagar minuto
+# de runner por um commit que já foi substituído.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  build-and-unit:
+    name: Lint, build e testes unitários
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      # O client do Prisma é gerado, não versionado: sem este passo o tsc
+      # falha em todo import de @prisma/client.
+      - run: npx prisma generate
+
+      # BLOQUEANTE: typecheck do código de produção. `tsconfig.build.json`
+      # exclui specs e test/, onde há débito pré-existente.
+      - name: Typecheck (produção)
+        run: npx tsc --noEmit -p tsconfig.build.json
+
+      - name: Lint (relatório)
+        continue-on-error: true
+        run: npx eslint "{src,test}/**/*.ts"
+
+      - name: Build
+        run: npm run build
+
+      - name: Testes unitários
+        run: npm run test:ci
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-unit
+          path: coverage/
+          retention-days: 7
+
+  integration:
+    name: Testes de integração
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15.19-alpine
+        env:
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: adminpassword
+          POSTGRES_DB: oficinadb_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U admin"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://admin:adminpassword@localhost:5433/oficinadb_test?schema=public
+      JWT_SECRET: ci-jwt-secret
+      PASSWORD_SALT: ci-password-salt
+      WEBHOOK_SECRET: ci-webhook-secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+      - run: npx prisma generate
+
+      - name: Aplicar migrations
+        run: npx prisma migrate deploy
+
+      - name: Testes de integração
+        run: npm run test:integration
+
+  docker:
+    name: Build da imagem de produção
+    runs-on: ubuntu-latest
+    # Só em PR: num push para main o deploy.yml constrói a mesma imagem minutos
+    # depois. Aqui o valor é pegar Dockerfile quebrado ANTES do merge.
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: production
+          push: false
+          tags: techchallenge-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  manifests:
+    name: Validação dos manifestos
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar kustomize e kubeconform
+        run: |
+          curl -sL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.5.0/kustomize_v5.5.0_linux_amd64.tar.gz | tar xz -C /usr/local/bin
+          curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz -C /usr/local/bin kubeconform
+
+      - name: Renderizar e validar overlays
+        run: |
+          # Os overlays usam secretGenerator (arquivo .env.secret montado no
+          # deploy). Para validar o schema, copia-se o exemplo com valores
+          # placeholder — o kustomize só precisa do arquivo existir.
+          cp k8s/overlays/aws/.env.secret.example k8s/overlays/aws/.env.secret
+          cp k8s/overlays/aws/.env.kong-jwt.example k8s/overlays/aws/.env.kong-jwt
+          cp k8s/overlays/local/.env.secret.example k8s/overlays/local/.env.secret
+          kustomize build k8s/overlays/local \
+            | kubeconform -kubernetes-version 1.32.2 -strict -summary
+          # KongPlugin/KongConsumer não estão no schema padrão: o catálogo de CRDs
+          # valida os campos deles em vez de ignorá-los.
+          kustomize build k8s/overlays/aws \
+            | kubeconform -kubernetes-version 1.32.0 -strict -summary \
+                -schema-location default \
+                -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+
+      # Impede que uma conta AWS real volte para o overlay. É fácil regredir:
+      # `kustomize edit set image` do deploy manual modifica o arquivo, e um
+      # `git add .` distraído publica o ID da conta num repositório público.
+      - name: Garantir que a imagem do overlay aws segue placeholder
+        run: |
+          grep -q "ACCOUNT_ID.dkr.ecr.REGION" k8s/overlays/aws/kustomization.yaml \
+            || { echo "::error::conta AWS real commitada no overlay — restaure ACCOUNT_ID/REGION"; exit 1; }
+
+      # A falha que derrubaria a produção em silêncio: default-deny sem a
+      # política que libera o Kong. Ver k8s/overlays/aws/networkpolicy-vpc.yaml.
+      - name: Garantir que a API tem NetworkPolicy de acesso à VPC
+        run: |
+          kustomize build k8s/overlays/aws \
+            | grep -q "name: api-vpc-access" \
+            || { echo "::error::api-vpc-access ausente — o Kong não alcançaria os pods"; exit 1; }

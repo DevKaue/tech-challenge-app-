@@ -1,0 +1,11 @@
+CREATE TYPE "MaterialType" AS ENUM ('PART', 'SUPPLY');
+CREATE TYPE "StockUnit" AS ENUM ('UNIT', 'LITER', 'MILLILITER', 'GRAM', 'KILOGRAM', 'METER');
+
+ALTER TABLE "parts"
+  ADD COLUMN "type" "MaterialType" NOT NULL DEFAULT 'PART',
+  ADD COLUMN "stock_unit" "StockUnit" NOT NULL DEFAULT 'UNIT',
+  ADD COLUMN "expires_at" TIMESTAMP(3);
+
+ALTER TABLE "parts"
+  ALTER COLUMN "stock_quantity" TYPE DOUBLE PRECISION
+  USING "stock_quantity"::DOUBLE PRECISION;

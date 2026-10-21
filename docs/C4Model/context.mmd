@@ -1,0 +1,23 @@
+graph TD
+    %% Estilos das Classes
+    classDef person fill:#084298,stroke:#052c65,stroke-width:2px,color:#ffffff,rx:10px,ry:10px;
+    classDef system fill:#1168bd,stroke:#0b4884,stroke-width:2px,color:#ffffff,rx:8px,ry:8px;
+    classDef extSystem fill:#999999,stroke:#666666,stroke-width:2px,color:#ffffff,rx:8px,ry:8px;
+
+    %% Atores (Personas)
+    C["👤 <b>Cliente</b><br/><i>[Person]</i><br/>Solicita serviços, aprova orçamentos e acompanha o veículo"]:::person
+    A["👤 <b>Atendente</b><br/><i>[Person]</i><br/>Recepção, abertura de O.S. e geração de orçamentos"]:::person
+    M["👤 <b>Mecânico</b><br/><i>[Person]</i><br/>Executa manutenções, diagnostica e requisita peças"]:::person
+    E["👤 <b>Estoquista</b><br/><i>[Person]</i><br/>Gerencia estoque e registra entrada/saída de materiais"]:::person
+
+    %% Sistemas
+    S["🏢 <b>Sistema da Oficina Mecânica</b><br/><i>[Software System]</i><br/>Gerencia O.S., agendamentos, estoque e financeiro"]:::system
+    F["🏭 <b>Sistema do Fornecedor</b><br/><i>[Software System]</i><br/>Consulta de catálogo, cotação e compra de peças"]:::extSystem
+
+    %% Relacionamentos
+    C -->|"Consulta status do serviço e aprova orçamentos"| S
+    A -->|"Abre ordens de serviço e emite orçamentos"| S
+    M -->|"Consulta diagnósticos e registra peças utilizadas"| S
+    E -->|"Controla itens em estoque e dá saída em peças"| S
+
+    S -->|"Envia pedidos de compra e consulta estoque"| F

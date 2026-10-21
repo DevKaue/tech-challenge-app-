@@ -1,0 +1,124 @@
+erDiagram
+    Customer ||--o{ Vehicle : "possui"
+    Customer ||--o{ ServiceOrder : "abre"
+    Vehicle ||--o{ ServiceOrder : "vinculado"
+    User ||--o{ ServiceOrder : "mecanico responsavel"
+    ServiceOrder ||--o{ ServiceOrderStatusHistory : "historiza"
+    ServiceOrder ||--o{ Estimate : "tem"
+    Estimate ||--o{ EstimateItem : "composto por"
+
+    Customer {
+        uuid id PK
+        string document UK "CPF/CNPJ/PASSAPORTE/RNE"
+        enum documentType "CPF | CNPJ | PASSPORT | RNE"
+        string name
+        string email UK
+        string phone
+        datetime archivedAt "soft delete"
+        datetime createdAt
+        datetime updatedAt
+    }
+
+    Vehicle {
+        uuid id PK
+        string plate UK
+        string brand
+        string model
+        int year
+        uuid customerId FK
+        datetime archivedAt "soft delete"
+        datetime createdAt
+        datetime updatedAt
+    }
+
+    User {
+        uuid id PK
+        string email UK
+        string name
+        string passwordHash "scrypt"
+        enum role "ATTENDANT | MECHANIC | ADMIN"
+        boolean isAvailable "para mecanicos"
+        datetime createdAt
+        datetime updatedAt
+    }
+
+    ServiceCatalog {
+        uuid id PK
+        string name
+        string description
+        decimal estimatedPrice
+        string category
+        int estimatedDurationMinutes
+        boolean isActive
+        datetime createdAt
+        datetime updatedAt
+    }
+
+    Material {
+        uuid id PK
+        string name
+        string description
+        enum type "PART | CONSUMABLE | SUPPLY"
+        enum stockUnit "UNIT | LITER | KILOGRAM | SQUARE_METER"
+        decimal quantityInStock
+        decimal minStockLevel
+        decimal unitCost
+        decimal salePrice
+        string supplier
+        datetime createdAt
+        datetime updatedAt
+    }
+
+    ServiceOrder {
+        uuid id PK
+        uuid customerId FK
+        uuid vehicleId FK
+        uuid mechanicId FK "opcional"
+        enum status "RECEIVED | IN_DIAGNOSIS | WAITING_APPROVAL | IN_EXECUTION | FINISHED | DELIVERED | CLOSED"
+        int mileage
+        string entryMethod "presential | remote"
+        text notes
+        int laborHours "horas de mao de obra"
+        text discardedParts "registro de pecas descartadas"
+        datetime startedAt
+        datetime finishedAt
+        datetime deliveredAt
+        datetime closedAt
+        datetime createdAt
+        datetime updatedAt
+    }
+
+    ServiceOrderStatusHistory {
+        uuid id PK
+        uuid serviceOrderId FK
+        enum fromStatus
+        enum toStatus
+        string changedBy
+        text reason
+        datetime changedAt
+    }
+
+    Estimate {
+        uuid id PK
+        uuid serviceOrderId FK
+        enum status "PENDING | APPROVED | REJECTED | EXPIRED"
+        decimal totalAmount
+        decimal discount
+        date validUntil
+        text notes
+        datetime approvedAt
+        datetime rejectedAt
+        datetime createdAt
+        datetime updatedAt
+    }
+
+    EstimateItem {
+        uuid id PK
+        uuid estimateId FK
+        enum itemType "SERVICE | PART"
+        uuid referenceId "serviceCatalogId ou materialId"
+        string description
+        int quantity
+        decimal unitPrice
+        decimal totalPrice
+    }

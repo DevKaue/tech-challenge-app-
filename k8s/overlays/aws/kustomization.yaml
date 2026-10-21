@@ -1,0 +1,157 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: techchallenge
+
+resources:
+  - ../../base
+  - namespace.yaml
+  - networkpolicy-vpc.yaml
+  - ingress-public.yaml
+  - ingress-protected.yaml
+  - kong-plugins.yaml
+  - kong-consumers.yaml
+
+secretGenerator:
+  # O Secret é montado no momento do deploy a partir do SSM (credenciais do
+  # RDS, publicadas pelo repo tech-challenge-database-infra) + as secrets de
+  # aplicação configuradas no environment do GitHub. O arquivo .env.secret é
+  # gerado pelo deploy.yml e é gitignored — nunca entra no repositório.
+  - name: techchallenge-secrets
+    envs:
+      - .env.secret
+
+  # Credenciais jwt dos KongConsumers (kong-consumers.yaml). O .env.kong-jwt
+  # (só a linha secret=...) é gerado pelo deploy.yml a partir do mesmo segredo
+  # SSM do JWT_SECRET do app, e é gitignored como o .env.secret.
+  # Sem hash no nome: o KongConsumer referencia o Secret por nome literal, e o
+  # Kustomize não sabe reescrever referências dentro de CRDs.
+  - name: kong-jwt-app-staff
+    options:
+      disableNameSuffixHash: true
+      labels:
+        konghq.com/credential: jwt
+    literals:
+      - key=techchallenge-app
+      - algorithm=HS256
+    envs:
+      - .env.kong-jwt
+  - name: kong-jwt-auth-lambda
+    options:
+      disableNameSuffixHash: true
+      labels:
+        konghq.com/credential: jwt
+    literals:
+      - key=techchallenge-auth-lambda
+      - algorithm=HS256
+    envs:
+      - .env.kong-jwt
+
+images:
+  - name: techchallenge-api
+    # PLACEHOLDERS de propósito — NÃO commitar a conta real aqui.
+    #
+    # Antes do `kubectl apply -k`, troque as DUAS linhas abaixo:
+    #   ACCOUNT_ID  → os 12 dígitos da sua conta
+    #                 (aws sts get-caller-identity --query Account --output text)
+    #   REGION      → a região do cluster, ex.: us-east-1
+    #   PLACEHOLDER → a tag publicada no ECR, ex.: v1
+    #
+    # O valor completo do newName é a saída `ecr_url` do repo
+    # techchallenge-infra-k8s (ou `terraform output -raw ecr_url` no monorepo).
+    #
+    # No CI isso é automático: o deploy.yml roda `kustomize edit set image`.
+    # No fluxo manual a edição é à mão — o `kustomize` é um binário separado,
+    # que o kubectl NÃO embute (ele traz só o `kustomize build`).
+    #
+    # DEPOIS DE APLICAR, desfaça a edição local:
+    #   git checkout k8s/overlays/aws/kustomization.yaml
+    #
+    # Esqueceu de trocar? O pod falha com ImagePullBackOff citando
+    # "ACCOUNT_ID" ou "PLACEHOLDER" — erro impossível de confundir.
+    # Confira antes com:
+    #   kubectl kustomize k8s/overlays/aws | grep "image:"
+    #newName: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/techchallenge-api
+    newName: ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/techchallenge-api
+    newTag: PLACEHOLDER
+
+# O Namespace agora é criado AQUI (namespace.yaml), e não mais pelo Terraform —
+# este repositório não faz parte do repositório de infraestrutura. O Secret vem
+# do secretGenerator acima (montado pelo deploy.yml a partir do SSM).
+#
+# SEM o StatefulSet do Postgres: o banco é RDS, ou seja, só um DATABASE_URL
+# diferente dentro do Secret.
+
+patches:
+  # 3 réplicas e requests maiores que no local — nó dedicado, não notebook.
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: techchallenge-api
+      spec:
+        replicas: 3
+        template:
+          spec:
+            # Espalha por zona E por nó. Duas constraints em vez de
+            # topologySpread + podAntiAffinity: mesma garantia, um mecanismo só.
+            # ScheduleAnyway em ambas — preferir pod rodando desbalanceado a pod
+            # Pending quando uma AZ está sem capacidade.
+            topologySpreadConstraints:
+              - maxSkew: 1
+                topologyKey: topology.kubernetes.io/zone
+                whenUnsatisfiable: ScheduleAnyway
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: techchallenge-api
+              - maxSkew: 1
+                topologyKey: kubernetes.io/hostname
+                whenUnsatisfiable: ScheduleAnyway
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: techchallenge-api
+            containers:
+              - name: api
+                resources:
+                  requests:
+                    cpu: 250m
+                    memory: 512Mi
+
+  - patch: |
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: techchallenge-api
+      spec:
+        minReplicas: 3
+        maxReplicas: 10
+
+  # Com 3 réplicas, minAvailable:1 do base permitiria derrubar 2 de uma vez.
+  # maxUnavailable:1 mantém 2 pods servindo durante drain de nó.
+  - patch: |
+      apiVersion: policy/v1
+      kind: PodDisruptionBudget
+      metadata:
+        name: techchallenge-api
+      spec:
+        minAvailable: null
+        maxUnavailable: 1
+
+  # Swagger LIGADO — decisão temporária, só para a demonstração do Tech
+  # Challenge. O Kong (NLB) é público e sem TLS, então /api/docs expõe toda a
+  # superfície da API (inclusive rotas de escrita) em HTTP claro, para qualquer
+  # um na internet.
+  #
+  # DEPOIS DA APRESENTAÇÃO, voltar para 'false' e rodar:
+  #   kubectl apply -k k8s/overlays/aws
+  #   kubectl -n techchallenge rollout restart deployment/techchallenge-api
+  #
+  # O restart é obrigatório: `envFrom` lê o ConfigMap só na criação do
+  # container. Ver src/main.ts → isSwaggerEnabled().
+  - patch: |
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: techchallenge-config
+      data:
+        SWAGGER_ENABLED: 'true'

@@ -1,0 +1,201 @@
+name: Deploy (Kubernetes)
+
+on:
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Tag a implantar, ex.: v3 (vazio = v<run_number>). Use para redeploy de uma versão anterior.'
+        required: false
+
+# Nunca dois deploys simultâneos no MESMO ambiente; diferente do CI, NÃO cancela
+# o anterior — matar um rollout no meio deixa o Deployment em estado misto.
+concurrency:
+  group: deploy-${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # troca o token OIDC do Actions por credencial temporária da AWS
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+  EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+  # Rail da branch para o ambiente lógico do GitHub. main = produção,
+  # develop = homologação. As varáveis/secrets por ambiente são resolvidas
+  # pela keyword `environment`.
+  ENVIRONMENT: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+  NAMESPACE: ${{ github.ref == 'refs/heads/main' && 'techchallenge' || 'techchallenge-staging' }}
+  DEPLOYMENT: techchallenge-api
+  # Nome do ambiente nos repositórios de infraestrutura Kubernetes e do banco
+  # (var.environment): compõe os caminhos SSM do segredo JWT e do banco e o
+  # nome da Lambda de autenticação.
+  INFRA_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'staging' }}
+
+jobs:
+  deploy:
+    name: Build, push e rollout
+    # O staging da infra (cluster techchallenge-staging) fica desligado para
+    # economizar crédito do Academy; sem ele, o push na develop só geraria run
+    # vermelho. Mesmo gate da infra Kubernetes: crie STAGING_ENABLED=true quando
+    # subir o staging.
+    if: github.ref == 'refs/heads/main' || vars.STAGING_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolver tags
+        id: tag
+        run: |
+          echo "versao=${{ inputs.image_tag || format('v{0}', github.run_number) }}" >> "$GITHUB_OUTPUT"
+          echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      # OIDC quando há secret AWS_DEPLOY_ROLE; no AWS Academy (sem OIDC), as
+      # credenciais temporárias do lab, que expiram com a sessão (4h).
+      - name: Credenciais AWS (OIDC ou credenciais do lab)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE }}
+          aws-access-key-id: ${{ secrets.AWS_LAB_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_LAB_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_LAB_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login no ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build e push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: production
+          push: true
+          # Nunca `latest`: em produção a tag precisa identificar um artefato.
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.versao }}
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: kubeconfig
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+
+      # O Secret do k8s não vive mais no git nem no overlay: o repositório
+      # do banco (tech-challenge-database-infra) publica as credenciais do
+      # Postgres no SSM, em /techchallenge/<env>/db/*, e este passo materializa
+      # o Secret do Kubernetes a partir delas + das secrets de aplicação
+      # configuradas no environment do GitHub. A senha é SecureString e já é
+      # gerada sem caracteres que quebrariam a DATABASE_URL.
+      # O JWT_SECRET vem do SSM (repositório de infraestrutura Kubernetes),
+      # não mais de um secret do GitHub: é o mesmo valor da Lambda e do Kong.
+      # Isso mantém a regra "o base não aplica Secret nenhum" e o overlap local
+      # (secretGenerator) intocado — só o aws muda de fonte.
+      - name: Montar Secret da aplicação
+        run: |
+          db_param() {
+            aws ssm get-parameter --with-decryption \
+              --name "/techchallenge/${INFRA_ENV}/db/$1" \
+              --query Parameter.Value --output text
+          }
+          DB_HOST=$(db_param host)
+          DB_PORT=$(db_param port)
+          DB_NAME=$(db_param name)
+          DB_USER=$(db_param username)
+          DB_PASS=$(db_param password)
+          echo "::add-mask::$DB_PASS"
+
+          # Mesmo segredo que a Lambda de CPF usa para assinar e que os
+          # KongConsumers usam para validar: um valor divergente faz o Kong
+          # recusar os tokens.
+          JWT_SECRET=$(aws ssm get-parameter --with-decryption \
+            --name "/techchallenge/${INFRA_ENV}/auth/jwt-secret" \
+            --query Parameter.Value --output text)
+          echo "::add-mask::$JWT_SECRET"
+
+          cat > k8s/overlays/aws/.env.secret <<EOF
+          DATABASE_URL=postgresql://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}?schema=public&sslmode=no-verify
+          JWT_SECRET=${JWT_SECRET}
+          PASSWORD_SALT=${{ secrets.PASSWORD_SALT }}
+          WEBHOOK_SECRET=${{ secrets.WEBHOOK_SECRET }}
+          EOF
+
+          echo "secret=${JWT_SECRET}" > k8s/overlays/aws/.env.kong-jwt
+
+      # Homologação e produção compartilham o cluster; o que muda é o namespace.
+      # `kustomize edit set namespace` reescreve o field `namespace` do overlay —
+      # e o Kustomize renomeia também o recurso Namespace, o Secret e o Ingress.
+      - name: Fixar imagem e namespace no overlay
+        working-directory: k8s/overlays/aws
+        run: |
+          curl -sL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.5.0/kustomize_v5.5.0_linux_amd64.tar.gz | tar xz -C /usr/local/bin
+          kustomize edit set image \
+            techchallenge-api=${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.versao }}
+          kustomize edit set namespace "$NAMESPACE"
+          kustomize edit add patch --kind KongPlugin --name auth-lambda \
+            --patch "[{\"op\":\"replace\",\"path\":\"/config/function_name\",\"value\":\"techchallenge-auth-${INFRA_ENV}\"}]"
+
+      - name: Diff
+        continue-on-error: true
+        run: kubectl diff -k k8s/overlays/aws || true
+
+      - name: Apply
+        run: kubectl apply -k k8s/overlays/aws
+
+      - name: Aguardar rollout
+        id: rollout
+        run: kubectl -n "$NAMESPACE" rollout status "deployment/$DEPLOYMENT" --timeout=300s
+
+      # Rollback automático: sem isto, um deploy quebrado fica de pé até alguém
+      # perceber. `rollout undo` volta para a revisão anterior imediatamente.
+      - name: Rollback em caso de falha
+        if: failure() && steps.rollout.outcome == 'failure'
+        run: |
+          echo "::error::Rollout falhou — revertendo"
+          kubectl -n "$NAMESPACE" describe deployment "$DEPLOYMENT" | tail -30
+          kubectl -n "$NAMESPACE" logs "deployment/$DEPLOYMENT" --tail=100 --all-containers || true
+          kubectl -n "$NAMESPACE" rollout undo "deployment/$DEPLOYMENT"
+          kubectl -n "$NAMESPACE" rollout status "deployment/$DEPLOYMENT" --timeout=180s
+
+      # Pelo Kong, o endereço público: o NLB do Service kong-gateway-proxy
+      # (namespace kong, instalado pelo repositório de infraestrutura).
+      - name: Smoke test
+        run: |
+          HOST=$(kubectl -n kong get svc kong-gateway-proxy \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          if [ -z "$HOST" ]; then
+            echo "::warning::NLB do Kong ainda sem ADDRESS — smoke test pulado"
+            exit 0
+          fi
+          for i in $(seq 1 24); do
+            code=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' "http://$HOST/api/health" || true)
+            [ "$code" = "200" ] && { echo "health OK"; break; }
+            sleep 15
+          done
+          [ "$code" = "200" ] || { echo "::error::/api/health não respondeu 200 (último: $code)"; exit 1; }
+
+          # Rota protegida sem token: quem barra é o Kong (plugin jwt), não o app.
+          body=$(curl -s --max-time 5 -w '\n%{http_code}' "http://$HOST/api/customers" || true)
+          code=$(echo "$body" | tail -1)
+          [ "$code" = "401" ] || { echo "::error::rota protegida sem token deveria dar 401 (veio $code)"; exit 1; }
+          echo "rota protegida sem token: 401 OK"
+
+      - name: Resumo
+        if: always()
+        run: |
+          {
+            echo "### Deploy"
+            echo ""
+            echo "| Item | Valor |"
+            echo "|---|---|"
+            echo "| Imagem | \`${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.versao }}\` (commit \`${{ steps.tag.outputs.sha }}\`) |"
+            echo "| Cluster | \`$EKS_CLUSTER_NAME\` |"
+            echo "| Ambiente | \`${{ env.ENVIRONMENT }}\` (namespace \`${{ env.NAMESPACE }}\`) |"
+            echo "| Rollout | ${{ steps.rollout.outcome }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

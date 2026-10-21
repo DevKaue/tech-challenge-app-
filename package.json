@@ -1,0 +1,216 @@
+{
+  "name": "backend",
+  "version": "0.0.1",
+  "description": "",
+  "author": "",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "nest build",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:debug": "nest start --debug --watch",
+    "start:prod": "node dist/src/main.js",
+    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "test": "jest",
+    "test:ci": "jest --coverage --runInBand",
+    "test:watch": "jest --watch",
+    "test:cov": "jest --coverage",
+    "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:e2e:cov": "jest --config ./test/jest-e2e.json --coverage --coverageReporters=lcov --coverageDirectory=coverage-e2e --runInBand",
+    "test:integration": "jest --config test/integration/jest.integration.config.ts --runInBand",
+    "test:integration:cov": "jest --config test/integration/jest.integration.config.ts --runInBand --coverage",
+    "test:all": "npm test && npm run test:integration && npm run test:e2e",
+    "test:all:cov": "npm run test:cov; npm run test:integration:cov; npm run test:e2e:cov; node scripts/merge-coverage.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:seed": "ts-node prisma/seed.ts",
+    "docker:dev": "docker compose up --build",
+    "docker:dev:reset": "docker compose down -v && docker compose up --build --renew-anon-volumes",
+    "docker:logs": "docker compose logs -f api",
+    "k8s:build": "docker build --target production -t techchallenge-api:local .",
+    "k8s:apply": "kubectl apply -k k8s/overlays/local",
+    "k8s:delete": "kubectl delete -k k8s/overlays/local",
+    "k8s:status": "kubectl -n techchallenge get pods,svc,hpa",
+    "k8s:seed": "kubectl -n techchallenge exec deploy/techchallenge-api -c api -- node dist/prisma/seed.js",
+    "k8s:forward": "kubectl -n techchallenge port-forward svc/techchallenge-api 8080:80",
+    "k8s:logs": "kubectl -n techchallenge logs -f deploy/techchallenge-api -c api"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.1",
+    "@nestjs/core": "^11.0.1",
+    "@nestjs/jwt": "^11.0.2",
+    "@nestjs/mapped-types": "*",
+    "@nestjs/passport": "^11.0.5",
+    "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/swagger": "^11.4.2",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "camelcase-keys": "6.1.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "dotenv": "^17.4.2",
+    "passport": "^0.7.0",
+    "passport-jwt": "^4.0.1",
+    "pg": "^8.21.0",
+    "prisma": "^7.8.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.2.0",
+    "@eslint/js": "^9.18.0",
+    "@nestjs/cli": "^11.0.0",
+    "@nestjs/schematics": "^11.0.0",
+    "@nestjs/testing": "^11.0.1",
+    "@types/express": "^5.0.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.0.0",
+    "@types/passport-jwt": "^4.0.1",
+    "@types/supertest": "^7.0.0",
+    "dotenv-cli": "^11.0.0",
+    "eslint": "^9.18.0",
+    "eslint-config-prettier": "^10.0.1",
+    "eslint-plugin-prettier": "^5.2.2",
+    "globals": "^17.0.0",
+    "jest": "^30.0.0",
+    "nyc": "^18.0.0",
+    "prettier": "^3.4.2",
+    "sonarqube-scanner": "^4.3.8",
+    "source-map-support": "^0.5.21",
+    "supertest": "^7.0.0",
+    "ts-jest": "^29.2.5",
+    "ts-loader": "^9.5.2",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.20.0"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
+  "overrides": {
+    "@hono/node-server": "1.19.14"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "moduleNameMapper": {
+      "^@/(.*)$": "<rootDir>/$1",
+      "^@materials/(.*)$": "<rootDir>/materials/$1",
+      "^@service-orders/(.*)$": "<rootDir>/service-orders/$1",
+      "^@customer-management/(.*)$": "<rootDir>/customer-management/$1",
+      "^@access-identity/(.*)$": "<rootDir>/access-identity/$1",
+      "^@common/(.*)$": "<rootDir>/common/$1"
+    },
+    "collectCoverageFrom": [
+      "**/*.(t|j)s",
+      "!**/*.spec.ts",
+      "!**/*.module.ts",
+      "!main.ts",
+      "!**/*.dto.ts",
+      "!**/dtos/**",
+      "!**/dto/**",
+      "!**/*.interface.ts",
+      "!**/contracts/**",
+      "!**/acls/**",
+      "!**/*.swagger.ts",
+      "!**/swaggers/**",
+      "!**/in-memory-*.ts",
+      "!**/exceptions/index.ts"
+    ],
+    "coverageDirectory": "../coverage",
+    "testEnvironment": "node",
+    "coverageThreshold": {
+      "src/customer-management/domain/": {
+        "statements": 80,
+        "branches": 70,
+        "functions": 80,
+        "lines": 80
+      },
+      "src/customer-management/application/usecases/": {
+        "statements": 80,
+        "branches": 70,
+        "functions": 80,
+        "lines": 80
+      },
+      "src/access-identity/domain/": {
+        "statements": 80,
+        "branches": 70,
+        "functions": 80,
+        "lines": 80
+      },
+      "src/access-identity/application/": {
+        "statements": 80,
+        "branches": 70,
+        "functions": 80,
+        "lines": 80
+      },
+      "src/service-orders/domain/": {
+        "statements": 80,
+        "branches": 70,
+        "functions": 80,
+        "lines": 80
+      },
+      "src/service-orders/application/usecases/": {
+        "statements": 80,
+        "branches": 60,
+        "functions": 80,
+        "lines": 80
+      },
+      "src/materials/domain/": {
+        "statements": 80,
+        "branches": 60,
+        "functions": 80,
+        "lines": 80
+      },
+      "src/materials/application/usecases/": {
+        "statements": 80,
+        "branches": 50,
+        "functions": 80,
+        "lines": 80
+      },
+      "src/service-orders/catalog/domain/": {
+        "statements": 80,
+        "branches": 70,
+        "functions": 80,
+        "lines": 80
+      },
+      "src/service-orders/presentation/controllers/": {
+        "statements": 80,
+        "branches": 70,
+        "functions": 80,
+        "lines": 80
+      },
+      "src/access-identity/presentation/controllers/": {
+        "statements": 80,
+        "branches": 70,
+        "functions": 80,
+        "lines": 80
+      },
+      "src/service-orders/catalog/application/usecases/": {
+        "statements": 80,
+        "branches": 70,
+        "functions": 80,
+        "lines": 80
+      }
+    },
+    "setupFiles": [
+      "<rootDir>/../test/setup/test-env.ts"
+    ]
+  },
+  "engines": {
+    "node": ">=22 <23"
+  }
+}

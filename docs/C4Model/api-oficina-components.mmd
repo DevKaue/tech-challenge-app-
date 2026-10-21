@@ -1,0 +1,67 @@
+graph TD
+    %% Estilos visuais
+    classDef person fill:#084298,stroke:#052c65,stroke-width:2px,color:#ffffff,rx:10px,ry:10px;
+    classDef systemBoundary fill:#e7f1ff,stroke:#0b4884,stroke-width:2px,color:#052c65,rx:10px,ry:10px;
+    classDef container fill:#1168bd,stroke:#0b4884,stroke-width:2px,color:#ffffff,rx:8px,ry:8px;
+    classDef component fill:#1f78d1,stroke:#0b4884,stroke-width:2px,color:#ffffff,rx:8px,ry:8px;
+    classDef sharedKernel fill:#0d5ca6,stroke:#083b6c,stroke-width:2px,color:#ffffff,rx:8px,ry:8px;
+    classDef infra fill:#0a4f92,stroke:#063867,stroke-width:2px,color:#ffffff,rx:8px,ry:8px;
+    classDef database fill:#0b4884,stroke:#052c65,stroke-width:2px,color:#ffffff,rx:8px,ry:8px;
+    classDef extSystem fill:#999999,stroke:#666666,stroke-width:2px,color:#ffffff,rx:8px,ry:8px;
+
+    %% Personas
+    C["👤 <b>Cliente</b><br/><i>[Person]</i>"]:::person
+    A["👤 <b>Atendente</b><br/><i>[Person]</i>"]:::person
+    M["👤 <b>Mecânico</b><br/><i>[Person]</i>"]:::person
+    E["👤 <b>Estoquista</b><br/><i>[Person]</i>"]:::person
+
+    %% Sistemas externos e persistência
+    F["🏭 <b>Sistema do Fornecedor</b><br/><i>[Software System]</i><br/>Catálogo, cotação e compra de peças"]:::extSystem
+    DB[("🗄️ <b>PostgreSQL</b><br/><i>[Container: Database]</i><br/>Persistência transacional dos contextos")]:::database
+
+    %% Fronteira do sistema e container em foco
+    subgraph SB["🏢 Sistema da Oficina Mecânica"]
+        direction TB
+        subgraph APIB["⚙️ API Oficina [Container: Node.js + TypeScript + NestJS]"]
+            direction TB
+
+            AI["🔐 <b>access-identity</b><br/><i>[Component / Feature Module]</i><br/>Autenticação, autorização e identidade"]:::component
+            CM["👥 <b>customer-management</b><br/><i>[Component / Feature Module]</i><br/>Cadastro e gestão de clientes"]:::component
+            MT["📦 <b>materials</b><br/><i>[Component / Feature Module]</i><br/>Estoque, itens e movimentações"]:::component
+            SO["🧾 <b>service-orders</b><br/><i>[Component / Feature Module]</i><br/>Ordem de serviço, diagnóstico e execução"]:::component
+
+            SK["🧩 <b>common</b><br/><i>[Shared Kernel Component]</i><br/>Contratos, utilitários, cross-cutting e padrões comuns"]:::sharedKernel
+            PM["🛠️ <b>Prisma Module</b><br/><i>[Infrastructure Component]</i><br/>Acesso a dados via Prisma ORM"]:::infra
+        end
+    end
+    class SB systemBoundary
+    class APIB container
+
+    %% Entrada dos usuários no container
+    C -->|"HTTPS + REST/JSON"| SO
+    A -->|"HTTPS + REST/JSON"| SO
+    M -->|"HTTPS + REST/JSON"| SO
+    E -->|"HTTPS + REST/JSON"| MT
+
+    %% Relações diretas entre módulos funcionais
+    CM -. "In-process call" .-> AI
+    MT -. "In-process call" .-> AI
+    SO -. "In-process call" .-> AI
+    SO -. "In-process call" .-> CM
+    SO -. "In-process call" .-> MT
+
+    %% Dependência do Shared Kernel (common)
+    AI -->|"In-process (imports/contracts)"| SK
+    CM -->|"In-process (imports/contracts)"| SK
+    MT -->|"In-process (imports/contracts)"| SK
+    SO -->|"In-process (imports/contracts)"| SK
+
+    %% Acesso a dados (Prisma Module)
+    AI -->|"Prisma Client (in-process)"| PM
+    CM -->|"Prisma Client (in-process)"| PM
+    MT -->|"Prisma Client (in-process)"| PM
+    SO -->|"Prisma Client (in-process)"| PM
+    PM -->|"SQL/TCP 5432 (PostgreSQL)"| DB
+
+    %% Integração Externa (Apenas materials)
+    MT -->|"HTTPS + REST/JSON"| F

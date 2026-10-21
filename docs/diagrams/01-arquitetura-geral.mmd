@@ -1,0 +1,56 @@
+graph TB
+    subgraph Docker["Infraestrutura Docker"]
+        DB[(PostgreSQL 15<br/>:5433)]
+        SONAR[SonarQube 26.6<br/>:9000]
+        SONAR_DB[(SonarQube DB<br/>PostgreSQL 15<br/>:5434)]
+    end
+
+    subgraph NestJS["NestJS API (:3000)"]
+        direction TB
+
+        subgraph Plataforma["Módulos de Plataforma"]
+            PRISMA[PrismaModule<br/>PrismaService]
+            ACCESS[AccessIdentityModule<br/>Auth / JWT / Roles]
+        end
+
+        subgraph Contextos["Bounded Contexts"]
+            CM[CustomerManagementModule<br/>Clientes e Veículos]
+            MAT[MaterialsModule<br/>Peças e Insumos]
+            SCAT[ServiceCatalogModule<br/>Catálogo de Serviços]
+            SO[ServiceOrdersModule<br/>Ordens de Serviço]
+        end
+
+        subgraph Integracoes["Integrações entre Contextos"]
+            FACADE_CM[CustomerManagementFacade]
+            FACADE_SO[ServiceOrdersFacade]
+        end
+    end
+
+    subgraph Testes["Qualidade"]
+        JEST[Jest - 491 unit<br/>68 integração]
+        LINT[ESLint]
+        TSC[TypeScript Compiler]
+    end
+
+    SONAR --> SONAR_DB
+    ACCESS --> PRISMA
+    CM --> PRISMA
+    MAT --> PRISMA
+    SCAT --> PRISMA
+    SO --> PRISMA
+
+    PRISMA --> DB
+
+    SO --> FACADE_CM
+    SO --> FACADE_SCAT[ACL: ServiceCatalog]
+    SO --> FACADE_MAT[ACL: Materials]
+    SO --> FACADE_USER[ACL: AccessIdentity]
+    FACADE_CM --> CM
+    FACADE_SCAT --> SCAT
+    FACADE_MAT --> MAT
+    FACADE_USER --> ACCESS
+
+    CM --> FACADE_SO
+    FACADE_SO --> SO
+
+    SONAR -.->|coverage scan| JEST

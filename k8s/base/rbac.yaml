@@ -1,0 +1,54 @@
+# RBAC do namespace: acesso de leitura para diagnóstico, sem poder de mudar nada.
+#
+# O caso de uso real é o comum: alguém precisa investigar um incidente
+# (`get pods`, `logs`, `describe`) sem ter permissão de alterar o Deployment ou
+# ler os Secrets. É a diferença entre "vejo o que está acontecendo" e "posso
+# mudar o que está acontecendo".
+#
+# Role (namespace) e não ClusterRole: o escopo é esta aplicação. Um ClusterRole
+# daria leitura em TODOS os namespaces do cluster, incluindo kube-system.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: techchallenge-readonly
+rules:
+  - apiGroups: ['']
+    resources: ['pods', 'services', 'endpoints', 'events', 'configmaps']
+    verbs: ['get', 'list', 'watch']
+
+  # Subrecurso separado: `pods` não inclui `pods/log`.
+  - apiGroups: ['']
+    resources: ['pods/log']
+    verbs: ['get', 'list']
+
+  - apiGroups: ['apps']
+    resources: ['deployments', 'replicasets', 'statefulsets']
+    verbs: ['get', 'list', 'watch']
+
+  - apiGroups: ['autoscaling']
+    resources: ['horizontalpodautoscalers']
+    verbs: ['get', 'list', 'watch']
+
+  - apiGroups: ['networking.k8s.io']
+    resources: ['networkpolicies', 'ingresses']
+    verbs: ['get', 'list', 'watch']
+
+  # `secrets` NÃO está na lista de propósito. Leitura de Secret é leitura de
+  # DATABASE_URL, JWT_SECRET, PASSWORD_SALT e WEBHOOK_SECRET em texto claro —
+  # isso é acesso de administrador, não de diagnóstico.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: techchallenge-readonly
+subjects:
+  # Grupo, não usuário: adicionar uma pessoa vira criar um access entry no EKS
+  # apontando para este grupo, sem tocar em manifesto.
+  #   No repositório de infraestrutura Kubernetes (EKS) → cluster_readonly_arns
+  - kind: Group
+    name: techchallenge:readonly
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: techchallenge-readonly
+  apiGroup: rbac.authorization.k8s.io
