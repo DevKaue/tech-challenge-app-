@@ -37,6 +37,11 @@ env:
 jobs:
   deploy:
     name: Build, push e rollout
+    # O staging da infra (cluster techchallenge-staging) fica desligado para
+    # economizar crédito do Academy; sem ele, o push na develop só geraria run
+    # vermelho. Mesmo gate da infra Kubernetes: crie STAGING_ENABLED=true quando
+    # subir o staging.
+    if: github.ref == 'refs/heads/main' || vars.STAGING_ENABLED == 'true'
     runs-on: ubuntu-latest
     environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
 

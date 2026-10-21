@@ -87,7 +87,7 @@ overlay `aws` — sem ela o ALB não alcança os pods.
 | Workflow | Dispara em | Faz |
 |---|---|---|
 | `ci.yml` | PR e push em `develop`/`main` | lint, typecheck, build, testes unitários e de integração, build da imagem e validação dos manifestos com `kubeconform` |
-| `deploy.yml` | push em `develop`/`main` (ou manual) | push no ECR com a tag do SHA, monta o Secret a partir do SSM, `apply -k`, `rollout status`, **`rollout undo` automático** se falhar, e smoke test em `/api/health` |
+| `deploy.yml` | push em `main`, e em `develop` só com `STAGING_ENABLED=true` (ou manual) | push no ECR com a tag do SHA, monta o Secret a partir do SSM, `apply -k`, `rollout status`, **`rollout undo` automático** se falhar, e smoke test em `/api/health` |
 
 O deploy autentica por **OIDC** quando existe o secret `AWS_DEPLOY_ROLE`. No AWS
 Academy, que não tem OIDC, usa as credenciais temporárias do lab (`AWS_LAB_*`),
