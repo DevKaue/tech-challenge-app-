@@ -6,8 +6,8 @@ export class FindOneServiceOrderUseCase {
     private readonly queryService: ServiceOrderQueryServiceInterface,
   ) {}
 
-  async execute(id: string) {
-    const order = await this.queryService.findOne(id);
+  async execute(id: string, customerId?: string) {
+    const order = await this.queryService.findOne(id, customerId);
     if (!order) throw new ServiceOrderNotFoundException(id);
     return order;
   }

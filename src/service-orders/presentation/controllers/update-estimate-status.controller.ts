@@ -6,7 +6,7 @@ import { UpdateEstimateStatusUseCase } from '@service-orders/application/usecase
 
 type UpdateEstimateStatusRequest = HttpRequest<
   UpdateEstimateStatusDto,
-  { estimateId: string },
+  { estimateId: string; customerId?: string },
   undefined
 >;
 
@@ -24,6 +24,8 @@ export default class UpdateEstimateStatusController implements Controller<
     const output = await this.updateEstimateStatusUseCase.execute(
       httpRequest.params.estimateId,
       httpRequest.body,
+      undefined,
+      httpRequest.params.customerId,
     );
 
     return {

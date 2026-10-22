@@ -1,5 +1,6 @@
 import { HttpStatus } from '@nestjs/common';
 import { ExceptionStatusMap } from '@/common/infra/filters/exception-status.map';
+import { CustomerEstimateStatusNotAllowedException } from '@service-orders/application/exceptions/customer-estimate-status-not-allowed.exception';
 import { CustomerNotFoundException } from '@service-orders/application/exceptions/customer-not-found.exception';
 import { InsufficientStockException } from '@service-orders/application/exceptions/insufficient-stock.exception';
 import { InvalidMaterialDataException } from '@service-orders/application/exceptions/invalid-material-data.exception';
@@ -31,6 +32,7 @@ export const serviceOrdersStatusMap: ExceptionStatusMap = [
   [InsufficientStockException, HttpStatus.CONFLICT],
   [DuplicateEstimateItemException, HttpStatus.CONFLICT],
   [UnauthorizedMechanicException, HttpStatus.FORBIDDEN],
+  [CustomerEstimateStatusNotAllowedException, HttpStatus.FORBIDDEN],
   [InvalidStatusTransitionException, HttpStatus.BAD_REQUEST],
   [InvalidMaterialDataException, HttpStatus.BAD_REQUEST],
   [DomainException, HttpStatus.BAD_REQUEST],

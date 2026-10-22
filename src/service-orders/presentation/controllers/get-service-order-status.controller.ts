@@ -5,7 +5,7 @@ import { ServiceOrderStatusDto } from '@service-orders/application/dto/query/ser
 
 type GetServiceOrderStatusRequest = HttpRequest<
   undefined,
-  { id: string },
+  { id: string; customerId?: string },
   undefined
 >;
 
@@ -22,6 +22,7 @@ export default class GetServiceOrderStatusController implements Controller<
   ): Promise<HttpResponse<ServiceOrderStatusDto>> {
     const output = await this.getServiceOrderStatusUseCase.execute(
       httpRequest.params.id,
+      httpRequest.params.customerId,
     );
 
     return {

@@ -8,7 +8,7 @@ import {
 
 type FindOneServiceOrderRequest = HttpRequest<
   undefined,
-  { id: string },
+  { id: string; customerId?: string },
   undefined
 >;
 
@@ -25,6 +25,7 @@ export default class FindOneServiceOrderController implements Controller<
   ): Promise<HttpResponse<ServiceOrderDetailResponse>> {
     const output = await this.findOneServiceOrderUseCase.execute(
       httpRequest.params.id,
+      httpRequest.params.customerId,
     );
 
     return {

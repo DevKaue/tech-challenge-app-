@@ -5,7 +5,18 @@ import { ServiceOrderStatusDto } from '@service-orders/application/dto/query/ser
 export abstract class ServiceOrderQueryServiceInterface {
   abstract findAll(): Promise<ServiceOrderSummaryDto[]>;
 
-  abstract findOne(id: string): Promise<ServiceOrderDetailDto | null>;
+  /**
+   * Com `customerId`, só devolve a OS desse cliente: a de outro é `null` e vira
+   * 404, e não 403, para não revelar que ela existe.
+   */
+  abstract findOne(
+    id: string,
+    customerId?: string,
+  ): Promise<ServiceOrderDetailDto | null>;
 
-  abstract findStatus(id: string): Promise<ServiceOrderStatusDto | null>;
+  /** Mesmo escopo por `customerId` do `findOne`. */
+  abstract findStatus(
+    id: string,
+    customerId?: string,
+  ): Promise<ServiceOrderStatusDto | null>;
 }
