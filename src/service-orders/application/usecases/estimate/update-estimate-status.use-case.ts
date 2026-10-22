@@ -1,6 +1,7 @@
 import {
   EstimateWithItems,
   ServiceOrdersRepositoryInterface,
+  ServiceOrderWithRelations,
 } from '@service-orders/domain/contracts/service-orders-repository.interface';
 import { ServiceOrderMapper } from '@service-orders/domain/mappers/service-order.mapper';
 import { EstimateStatus } from '@service-orders/domain/enums/estimate-status.enum';
@@ -10,6 +11,7 @@ import { plainToInstance } from 'class-transformer';
 import { ServiceOrderNotFoundException } from '@service-orders/application/exceptions/service-order-not-found.exception';
 import { InvalidStatusTransitionException } from '@service-orders/application/exceptions/invalid-status-transition.exception';
 import { EstimateNotFoundException } from '@service-orders/application/exceptions/estimate-not-found.exception';
+import { CustomerEstimateStatusNotAllowedException } from '@service-orders/application/exceptions/customer-estimate-status-not-allowed.exception';
 import type { PartRepository } from '@service-orders/domain/acls/part-repository.interface';
 import { ServiceOrder } from '@service-orders/domain/entities/service-order.entity';
 import { StatusChange } from '@service-orders/domain/value-objects/status-change.value-object';
@@ -30,9 +32,31 @@ export class UpdateEstimateStatusUseCase {
     estimateId: string,
     dto: EstimateStatusUpdate,
     changedBy = 'system',
+    customerId?: string,
   ) {
+    // O cliente decide o orçamento: aprovar ou rejeitar. Os demais status
+    // (PENDING, NEGOTIATED) são do fluxo interno da oficina.
+    if (
+      customerId &&
+      dto.status !== EstimateStatus.APPROVED &&
+      dto.status !== EstimateStatus.REJECTED
+    ) {
+      throw new CustomerEstimateStatusNotAllowedException();
+    }
+
     const estimate = await this.repository.findEstimateById(estimateId);
     if (!estimate) throw new EstimateNotFoundException(estimateId);
+
+    // Antes de qualquer retorno ou mudança de estado. Orçamento de OS de outro
+    // cliente é 404, e não 403: não revela que ele existe. A OS carregada aqui é
+    // reaproveitada mais abaixo, em vez de buscar de novo.
+    let ownedOrder: ServiceOrderWithRelations | null = null;
+    if (customerId) {
+      ownedOrder = await this.repository.findById(estimate.serviceOrderId);
+      if (ownedOrder?.customerId !== customerId) {
+        throw new EstimateNotFoundException(estimateId);
+      }
+    }
 
     const existingStatus = estimate.status as EstimateStatus;
 
@@ -60,7 +84,8 @@ export class UpdateEstimateStatusUseCase {
       return this.toResponse(updated);
     }
 
-    const data = await this.repository.findById(estimate.serviceOrderId);
+    const data =
+      ownedOrder ?? (await this.repository.findById(estimate.serviceOrderId));
     if (!data) {
       throw new ServiceOrderNotFoundException(estimate.serviceOrderId);
     }

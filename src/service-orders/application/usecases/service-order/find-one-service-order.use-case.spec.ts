@@ -73,4 +73,15 @@ describe('FindOneServiceOrderUseCase', () => {
       ServiceOrderNotFoundException,
     );
   });
+
+  it('should look the order up scoped to the customer and not found for another customer', async () => {
+    queryService.findOne.mockResolvedValue(null);
+
+    await expect(useCase.execute('order-1', 'customer-2')).rejects.toThrow(
+      ServiceOrderNotFoundException,
+    );
+    expect(queryService.findOne.mock.calls).toEqual([
+      ['order-1', 'customer-2'],
+    ]);
+  });
 });

@@ -4,6 +4,7 @@ import {
   Param,
   Patch,
   Post,
+  Req,
   UseFilters,
   UseGuards,
 } from '@nestjs/common';
@@ -14,7 +15,12 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { CustomerAccess } from '@/access-identity/infra/decorators/customer-access.decorator';
 import { JwtAuthGuard } from '@/access-identity/infra/guards/jwt-auth.guard';
+import {
+  customerScopeOf,
+  type RequestWithPrincipal,
+} from '@/access-identity/presentation/interfaces/authenticated-user.interface';
 import { adaptNestRoute } from '@/common/presentation/adapters/nest-route.adapter';
 import type { HttpResponse } from '@/common/application/contracts/http';
 import { DomainExceptionFilter } from '@/common/infra/filters/domain-exception.filter';
@@ -72,15 +78,17 @@ export class EstimateInfraController {
   }
 
   @Patch('estimates/:estimateId/status')
+  @CustomerAccess()
   @ApiOperation({ summary: 'Aprova ou rejeita o orcamento' })
   @ApiOkResponse({ type: EstimateResponseDto })
   updateEstimateStatus(
     @Param('estimateId') estimateId: string,
     @Body() dto: UpdateEstimateStatusDto,
+    @Req() req: RequestWithPrincipal,
   ): Promise<HttpResponse<EstimateResponseDto>> {
     return adaptNestRoute(this.updateEstimateStatusController, {
       body: dto,
-      params: { estimateId },
+      params: { estimateId, customerId: customerScopeOf(req) },
       query: undefined,
     });
   }

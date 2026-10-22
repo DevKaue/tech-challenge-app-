@@ -51,4 +51,15 @@ describe('GetServiceOrderStatusUseCase', () => {
       ServiceOrderNotFoundException,
     );
   });
+
+  it('should look the status up scoped to the customer and not found for another customer', async () => {
+    queryService.findStatus.mockResolvedValue(null);
+
+    await expect(useCase.execute('order-1', 'customer-2')).rejects.toThrow(
+      ServiceOrderNotFoundException,
+    );
+    expect(queryService.findStatus.mock.calls).toEqual([
+      ['order-1', 'customer-2'],
+    ]);
+  });
 });

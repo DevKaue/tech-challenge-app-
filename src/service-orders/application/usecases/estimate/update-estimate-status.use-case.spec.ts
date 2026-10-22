@@ -1,11 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UpdateEstimateStatusUseCase } from './update-estimate-status.use-case';
-import { ServiceOrdersRepositoryInterface } from '@service-orders/domain/contracts/service-orders-repository.interface';
+import {
+  ServiceOrdersRepositoryInterface,
+  type EstimateWithItems,
+  type ServiceOrderWithRelations,
+} from '@service-orders/domain/contracts/service-orders-repository.interface';
 import { ServiceOrderStatus } from '@service-orders/domain/enums/service-order-status.enum';
 import { EstimateStatus } from '@service-orders/domain/enums/estimate-status.enum';
 import { ServiceOrderNotFoundException } from '@service-orders/application/exceptions/service-order-not-found.exception';
 import { InvalidStatusTransitionException } from '@service-orders/application/exceptions/invalid-status-transition.exception';
 import { EstimateNotFoundException } from '@service-orders/application/exceptions/estimate-not-found.exception';
+import { CustomerEstimateStatusNotAllowedException } from '@service-orders/application/exceptions/customer-estimate-status-not-allowed.exception';
 import { PART_REPOSITORY } from '@service-orders/domain/acls/part-repository.interface';
 import { ServiceOrderItemType } from '@service-orders/domain/enums/service-order-item-type.enum';
 
@@ -247,5 +252,70 @@ describe('UpdateEstimateStatusUseCase', () => {
     ).rejects.toThrow(EstimateNotFoundException);
 
     expect(repository.updateEstimateStatus).not.toHaveBeenCalled();
+  });
+
+  describe('when the caller is a customer', () => {
+    const estimate = {
+      id: 'est-1',
+      serviceOrderId: 'order-1',
+      status: EstimateStatus.PENDING,
+      items: [],
+    } as unknown as EstimateWithItems;
+    const orderOf = (customerId: string) =>
+      ({ ...mockOrder, customerId }) as unknown as ServiceOrderWithRelations;
+
+    it('should answer not found for an estimate of another customer, without changing anything', async () => {
+      repository.findEstimateById.mockResolvedValue(estimate);
+      repository.findById.mockResolvedValue(orderOf('customer-1'));
+
+      await expect(
+        useCase.execute(
+          'est-1',
+          { status: EstimateStatus.APPROVED },
+          undefined,
+          'customer-2',
+        ),
+      ).rejects.toThrow(EstimateNotFoundException);
+
+      expect(repository.updateEstimateStatus.mock.calls).toHaveLength(0);
+      expect(repository.update.mock.calls).toHaveLength(0);
+      expect(repository.createStatusHistory.mock.calls).toHaveLength(0);
+    });
+
+    it('should let the owner of the order approve the estimate', async () => {
+      repository.findEstimateById.mockResolvedValue(estimate);
+      repository.updateEstimateStatus.mockResolvedValue({
+        ...estimate,
+        status: EstimateStatus.APPROVED,
+      });
+      repository.findById.mockResolvedValue(orderOf('customer-1'));
+      repository.update.mockResolvedValue({
+        ...orderOf('customer-1'),
+        status: ServiceOrderStatus.IN_EXECUTION,
+      });
+
+      const result = await useCase.execute(
+        'est-1',
+        { status: EstimateStatus.APPROVED },
+        undefined,
+        'customer-1',
+      );
+
+      expect(result).toHaveProperty('status', EstimateStatus.APPROVED);
+      // A OS do dono é carregada uma vez só: a checagem e a transição usam a mesma.
+      expect(repository.findById.mock.calls).toHaveLength(1);
+    });
+
+    it.each([EstimateStatus.PENDING, EstimateStatus.NEGOTIATED])(
+      'should forbid a customer from setting %s, before touching the repository',
+      async (status) => {
+        await expect(
+          useCase.execute('est-1', { status }, undefined, 'customer-1'),
+        ).rejects.toThrow(CustomerEstimateStatusNotAllowedException);
+
+        expect(repository.findEstimateById.mock.calls).toHaveLength(0);
+        expect(repository.updateEstimateStatus.mock.calls).toHaveLength(0);
+      },
+    );
   });
 });
