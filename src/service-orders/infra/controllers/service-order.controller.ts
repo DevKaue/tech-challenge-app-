@@ -17,7 +17,12 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { AuthenticatedRequest } from '@/access-identity/presentation/authenticated-request';
-import type { RequestWithUser } from '@/access-identity/presentation/interfaces/authenticated-user.interface';
+import {
+  customerScopeOf,
+  type RequestWithPrincipal,
+  type RequestWithUser,
+} from '@/access-identity/presentation/interfaces/authenticated-user.interface';
+import { CustomerAccess } from '@/access-identity/infra/decorators/customer-access.decorator';
 import { JwtAuthGuard } from '@/access-identity/infra/guards/jwt-auth.guard';
 import { adaptNestRoute } from '@/common/presentation/adapters/nest-route.adapter';
 import type { HttpResponse } from '@/common/application/contracts/http';
@@ -84,27 +89,31 @@ export class ServiceOrderInfraController {
   }
 
   @Get(':id')
+  @CustomerAccess()
   @ApiOperation({ summary: 'Detalha uma OS com historico de status' })
   @ApiOkResponse({ type: ServiceOrderResponseDto })
   findOne(
     @Param('id') id: string,
+    @Req() req: RequestWithPrincipal,
   ): Promise<HttpResponse<ServiceOrderDetailResponse>> {
     return adaptNestRoute(this.findOneServiceOrderController, {
       body: undefined,
-      params: { id },
+      params: { id, customerId: customerScopeOf(req) },
       query: undefined,
     });
   }
 
   @Get(':id/status')
+  @CustomerAccess()
   @ApiOperation({ summary: 'Consulta do status atual da OS' })
   @ApiOkResponse({ type: ServiceOrderStatusDto })
   findStatus(
     @Param('id') id: string,
+    @Req() req: RequestWithPrincipal,
   ): Promise<HttpResponse<ServiceOrderStatusDto>> {
     return adaptNestRoute(this.getServiceOrderStatusController, {
       body: undefined,
-      params: { id },
+      params: { id, customerId: customerScopeOf(req) },
       query: undefined,
     });
   }

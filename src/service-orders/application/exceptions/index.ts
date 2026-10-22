@@ -9,3 +9,4 @@ export { VehicleOwnerMismatchException } from './vehicle-owner-mismatch.exceptio
 export { InvalidMaterialDataException } from './invalid-material-data.exception';
 export { CustomerNotFoundException } from './customer-not-found.exception';
 export { EstimateNotFoundException } from './estimate-not-found.exception';
+export { CustomerEstimateStatusNotAllowedException } from './customer-estimate-status-not-allowed.exception';

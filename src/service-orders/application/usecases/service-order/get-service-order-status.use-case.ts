@@ -6,8 +6,8 @@ export class GetServiceOrderStatusUseCase {
     private readonly queryService: ServiceOrderQueryServiceInterface,
   ) {}
 
-  async execute(id: string) {
-    const status = await this.queryService.findStatus(id);
+  async execute(id: string, customerId?: string) {
+    const status = await this.queryService.findStatus(id, customerId);
     if (!status) throw new ServiceOrderNotFoundException(id);
     return status;
   }

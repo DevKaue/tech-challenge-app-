@@ -22,9 +22,13 @@ const STATUS_PRIORITY = new Map(
 export class PrismaServiceOrderQueryService implements ServiceOrderQueryServiceInterface {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findStatus(id: string): Promise<ServiceOrderStatusDto | null> {
+  async findStatus(
+    id: string,
+    customerId?: string,
+  ): Promise<ServiceOrderStatusDto | null> {
     const order = await this.prisma.serviceOrder.findUnique({
-      where: { id },
+      // `customerId` indefinido não filtra: o Prisma ignora o campo.
+      where: { id, customerId },
       select: { id: true, status: true, updatedAt: true },
     });
 
@@ -96,9 +100,12 @@ export class PrismaServiceOrderQueryService implements ServiceOrderQueryServiceI
     }));
   }
 
-  async findOne(id: string): Promise<ServiceOrderDetailDto | null> {
+  async findOne(
+    id: string,
+    customerId?: string,
+  ): Promise<ServiceOrderDetailDto | null> {
     const order = await this.prisma.serviceOrder.findUnique({
-      where: { id },
+      where: { id, customerId },
       include: {
         customer: true,
         vehicle: true,
