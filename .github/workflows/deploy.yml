@@ -53,6 +53,10 @@ jobs:
         run: |
           echo "versao=${{ inputs.image_tag || format('v{0}', github.run_number) }}" >> "$GITHUB_OUTPUT"
           echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          # O que vai para o cluster: a tag pedida (redeploy/rollback) ou a do
+          # commit, que é única e imutável. A v<run_number> muda a cada run, e
+          # um deploy novo do mesmo commit não a teria publicado.
+          echo "deploy=${{ inputs.image_tag || github.sha }}" >> "$GITHUB_OUTPUT"
 
       # OIDC quando há secret AWS_DEPLOY_ROLE; no AWS Academy (sem OIDC), as
       # credenciais temporárias do lab, que expiram com a sessão (4h).
@@ -69,9 +73,25 @@ jobs:
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      # O ECR é imutável: um re-run (ou um deploy novo do mesmo commit) repetiria
+      # a tag do commit e o push seria recusado. Mesmo commit é a mesma imagem,
+      # então reaproveita em vez de rebuildar.
+      - name: Imagem do commit já publicada?
+        id: imagem
+        run: |
+          if aws ecr describe-images --repository-name "$ECR_REPOSITORY" \
+               --image-ids imageTag="${{ steps.tag.outputs.sha }}" >/dev/null 2>&1; then
+            echo "existe=true" >> "$GITHUB_OUTPUT"
+            echo "Imagem do commit ${{ steps.tag.outputs.sha }} já publicada; reaproveitando"
+          else
+            echo "existe=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: docker/setup-buildx-action@v3
+        if: inputs.image_tag == '' && steps.imagem.outputs.existe != 'true'
 
       - name: Build e push
+        if: inputs.image_tag == '' && steps.imagem.outputs.existe != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -136,7 +156,7 @@ jobs:
         run: |
           curl -sL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.5.0/kustomize_v5.5.0_linux_amd64.tar.gz | tar xz -C /usr/local/bin
           kustomize edit set image \
-            techchallenge-api=${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.versao }}
+            techchallenge-api=${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.deploy }}
           kustomize edit set namespace "$NAMESPACE"
           kustomize edit add patch --kind KongPlugin --name auth-lambda \
             --patch "[{\"op\":\"replace\",\"path\":\"/config/function_name\",\"value\":\"techchallenge-auth-${INFRA_ENV}\"}]"
@@ -194,7 +214,7 @@ jobs:
             echo ""
             echo "| Item | Valor |"
             echo "|---|---|"
-            echo "| Imagem | \`${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.versao }}\` (commit \`${{ steps.tag.outputs.sha }}\`) |"
+            echo "| Imagem | \`${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.deploy }}\` (commit \`${{ steps.tag.outputs.sha }}\`) |"
             echo "| Cluster | \`$EKS_CLUSTER_NAME\` |"
             echo "| Ambiente | \`${{ env.ENVIRONMENT }}\` (namespace \`${{ env.NAMESPACE }}\`) |"
             echo "| Rollout | ${{ steps.rollout.outcome }} |"
