@@ -139,11 +139,29 @@ jobs:
             --query Parameter.Value --output text)
           echo "::add-mask::$JWT_SECRET"
 
+          # License key do New Relic (repositório tech-challenge-docs,
+          # observabilidade/README.md). Opcional: sem o parâmetro, a API sobe
+          # com o agente APM desligado e os logs JSON seguem pelo Fluent Bit.
+          NR_LICENSE_KEY=$(aws ssm get-parameter --with-decryption \
+            --name "/techchallenge/${INFRA_ENV}/newrelic/license-key" \
+            --query Parameter.Value --output text 2>/dev/null || true)
+          if [ -n "$NR_LICENSE_KEY" ]; then
+            echo "::add-mask::$NR_LICENSE_KEY"
+            NR_ENABLED=true
+          else
+            echo "::notice::Sem /techchallenge/${INFRA_ENV}/newrelic/license-key no SSM: APM desligado"
+            NR_ENABLED=false
+          fi
+
           cat > k8s/overlays/aws/.env.secret <<EOF
           DATABASE_URL=postgresql://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}?schema=public&sslmode=no-verify
           JWT_SECRET=${JWT_SECRET}
           PASSWORD_SALT=${{ secrets.PASSWORD_SALT }}
           WEBHOOK_SECRET=${{ secrets.WEBHOOK_SECRET }}
+          APP_ENV=${INFRA_ENV}
+          NEW_RELIC_ENABLED=${NR_ENABLED}
+          NEW_RELIC_APP_NAME=techchallenge-api-${INFRA_ENV}
+          NEW_RELIC_LICENSE_KEY=${NR_LICENSE_KEY}
           EOF
 
           echo "secret=${JWT_SECRET}" > k8s/overlays/aws/.env.kong-jwt
