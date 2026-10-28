@@ -112,6 +112,8 @@ jobs:
           JWT_SECRET=${JWT_SECRET}
           PASSWORD_SALT=${{ secrets.PASSWORD_SALT }}
           WEBHOOK_SECRET=${{ secrets.WEBHOOK_SECRET }}
+          NEW_RELIC_LICENSE_KEY=${{ secrets.NEW_RELIC_LICENSE_KEY }}
+          NEW_RELIC_APP_NAME=techchallenge-api-${INFRA_ENV}
           EOF
 
           echo "secret=${JWT_SECRET}" > k8s/overlays/aws/.env.kong-jwt
@@ -133,6 +135,8 @@ jobs:
         continue-on-error: true
         run: kubectl diff -k k8s/overlays/aws || true
 
+      - name: Gerar env do New Relic
+        run: echo "license-key=${{ secrets.NEW_RELIC_LICENSE_KEY }}" > k8s/overlays/${ENV}/newrelic.env
       - name: Apply
         run: kubectl apply -k k8s/overlays/aws
 

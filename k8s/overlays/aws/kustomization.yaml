@@ -47,6 +47,12 @@ secretGenerator:
     envs:
       - .env.kong-jwt
 
+  - name: newrelic
+    envs:
+      - .env.newrelic
+    options:
+      disableNameSuffixHash: true
+
 images:
   - name: techchallenge-api
     # PLACEHOLDERS de propósito — NÃO commitar a conta real aqui.

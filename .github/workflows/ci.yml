@@ -139,6 +139,7 @@ jobs:
           cp k8s/overlays/aws/.env.secret.example k8s/overlays/aws/.env.secret
           cp k8s/overlays/aws/.env.kong-jwt.example k8s/overlays/aws/.env.kong-jwt
           cp k8s/overlays/local/.env.secret.example k8s/overlays/local/.env.secret
+          cp k8s/overlays/aws/.env.newrelic.example k8s/overlays/aws/.env.newrelic
           kustomize build k8s/overlays/local \
             | kubeconform -kubernetes-version 1.32.2 -strict -summary
           # KongPlugin/KongConsumer não estão no schema padrão: o catálogo de CRDs
