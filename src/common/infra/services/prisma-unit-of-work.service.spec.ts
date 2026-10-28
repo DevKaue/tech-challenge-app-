@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import PrismaUnitOfWorkService from './prisma-unit-of-work.service';
 import type { PrismaService } from '@/common/infra/prisma/prisma.service';
 
@@ -41,6 +42,37 @@ describe('PrismaUnitOfWorkService.afterCommit', () => {
       }),
     ).rejects.toThrow('rollback');
     expect(callback).not.toHaveBeenCalled();
+  });
+
+  it('um callback que falha não derruba a requisição nem os seguintes', async () => {
+    const errorSpy = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    const seguinte = jest.fn();
+    const uow = new PrismaUnitOfWorkService(
+      prismaWith(
+        jest.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn({})),
+      ),
+    );
+
+    const result = await uow.runInTransaction(() => {
+      uow.afterCommit(() => {
+        throw new Error('falhou');
+      });
+      uow.afterCommit(seguinte);
+      return Promise.resolve('gravado');
+    });
+
+    expect(result).toBe('gravado');
+    expect(seguinte).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'unit_of_work.after_commit_failed',
+        errorName: 'Error',
+      }),
+      expect.stringContaining('falhou'),
+    );
+    errorSpy.mockRestore();
   });
 
   it('fora de transação roda na hora', () => {

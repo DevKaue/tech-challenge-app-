@@ -142,15 +142,23 @@ jobs:
           # License key do New Relic (repositório tech-challenge-docs,
           # observabilidade/README.md). Opcional: sem o parâmetro, a API sobe
           # com o agente APM desligado e os logs JSON seguem pelo Fluent Bit.
-          NR_LICENSE_KEY=$(aws ssm get-parameter --with-decryption \
-            --name "/techchallenge/${INFRA_ENV}/newrelic/license-key" \
-            --query Parameter.Value --output text 2>/dev/null || true)
-          if [ -n "$NR_LICENSE_KEY" ]; then
+          # Só ParameterNotFound significa "sem APM"; credencial expirada ou
+          # falta de permissão derrubam o deploy em vez de desligar o APM calado.
+          NR_PARAM="/techchallenge/${INFRA_ENV}/newrelic/license-key"
+          NR_ERR="${RUNNER_TEMP}/newrelic-ssm.err"
+          if NR_LICENSE_KEY=$(aws ssm get-parameter --with-decryption \
+            --name "$NR_PARAM" \
+            --query Parameter.Value --output text 2>"$NR_ERR"); then
             echo "::add-mask::$NR_LICENSE_KEY"
             NR_ENABLED=true
-          else
-            echo "::notice::Sem /techchallenge/${INFRA_ENV}/newrelic/license-key no SSM: APM desligado"
+          elif grep -q ParameterNotFound "$NR_ERR"; then
+            echo "::notice::Sem ${NR_PARAM} no SSM: APM desligado"
+            NR_LICENSE_KEY=
             NR_ENABLED=false
+          else
+            cat "$NR_ERR" >&2
+            echo "::error::Falha ao ler ${NR_PARAM} no SSM"
+            exit 1
           fi
 
           cat > k8s/overlays/aws/.env.secret <<EOF

@@ -1,6 +1,6 @@
 import UnitOfWorkServiceInterface from '@/common/application/contracts/unit-of-work-service.interface';
 import { PrismaService } from '@/common/infra/prisma/prisma.service';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { AsyncLocalStorage } from 'async_hooks';
 import { Prisma } from '@prisma/client';
 
@@ -13,6 +13,8 @@ type TransactionScope = {
 export default class PrismaUnitOfWorkService implements UnitOfWorkServiceInterface {
   private static readonly asyncLocalStorage =
     new AsyncLocalStorage<TransactionScope>();
+
+  private readonly logger = new Logger(PrismaUnitOfWorkService.name);
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -27,7 +29,8 @@ export default class PrismaUnitOfWorkService implements UnitOfWorkServiceInterfa
     });
 
     // Só depois do COMMIT: um rollback descarta os callbacks junto com os dados.
-    for (const callback of afterCommit) callback();
+    // Um callback que falha não vira 500: os dados já estão gravados.
+    for (const callback of afterCommit) this.runAfterCommit(callback);
 
     return result;
   }
@@ -48,6 +51,21 @@ export default class PrismaUnitOfWorkService implements UnitOfWorkServiceInterfa
       scope.afterCommit.push(callback);
       return;
     }
-    callback();
+    this.runAfterCommit(callback);
+  }
+
+  private runAfterCommit(callback: () => void): void {
+    try {
+      callback();
+    } catch (error) {
+      this.logger.error(
+        {
+          event: 'unit_of_work.after_commit_failed',
+          errorName:
+            error instanceof Error ? error.constructor.name : typeof error,
+        },
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
   }
 }
