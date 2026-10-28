@@ -1,4 +1,9 @@
-import { ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  ArgumentsHost,
+  HttpException,
+  HttpStatus,
+  Logger,
+} from '@nestjs/common';
 import { HttpExceptionFilter } from './http-exception.filter';
 import { allExceptionStatusMaps } from '@/exception-status.registry';
 import CustomerNotFoundException from '@/customer-management/domain/exceptions/customer-not-found.exception';
@@ -9,12 +14,17 @@ describe('HttpExceptionFilter', () => {
   let mockResponse: { status: jest.Mock; json: jest.Mock };
   let mockRequest: { method: string; url: string };
   let mockHost: ArgumentsHost;
+  let warnSpy: jest.SpyInstance;
+  let errorSpy: jest.SpyInstance;
 
   beforeEach(() => {
     filter = new HttpExceptionFilter(allExceptionStatusMaps);
 
-    jest.spyOn(filter['logger'], 'warn').mockImplementation(() => {});
-    jest.spyOn(filter['logger'], 'error').mockImplementation(() => {});
+    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
+    warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    errorSpy = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => {});
 
     mockResponse = {
       status: jest.fn().mockReturnThis(),
@@ -96,5 +106,25 @@ describe('HttpExceptionFilter', () => {
     filter.catch('string error', mockHost);
 
     expect(mockResponse.status).toHaveBeenCalledWith(500);
+  });
+
+  it('registra 4xx como http.request de nível warn, sem http.error', () => {
+    filter.catch(
+      new HttpException('Bad data', HttpStatus.BAD_REQUEST),
+      mockHost,
+    );
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'http.request', statusCode: 400 }),
+    );
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('usa "(sem rota)" quando nenhuma rota casou, em vez da URL crua', () => {
+    filter.catch(new HttpException('x', HttpStatus.NOT_FOUND), mockHost);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ route: '(sem rota)' }),
+    );
   });
 });

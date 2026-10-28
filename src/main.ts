@@ -10,6 +10,8 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { HttpExceptionFilter } from '@common/infra/filters/http-exception.filter';
 import { LoggingInterceptor } from '@common/infra/interceptors/logging.interceptor';
 import { allExceptionStatusMaps } from './exception-status.registry';
+import { JsonLogger } from '@common/infra/logging/json-logger';
+import { correlationIdMiddleware } from '@common/infra/logging/request-context';
 
 /**
  * Swagger é ligado por padrão fora de produção e desligado por padrão em
@@ -25,11 +27,33 @@ function isSwaggerEnabled(): boolean {
   return process.env.NODE_ENV !== 'production';
 }
 
+/**
+ * JSON em produção (uma linha por evento, lida pelo Fluent Bit do New Relic) e
+ * o logger colorido do Nest no resto. `LOG_FORMAT` sobrepõe os dois lados.
+ */
+function isJsonLogging(): boolean {
+  const format = process.env.LOG_FORMAT;
+
+  if (format !== undefined) {
+    return format === 'json';
+  }
+
+  return process.env.NODE_ENV === 'production';
+}
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     bufferLogs: true,
     rawBody: true,
   });
+
+  if (isJsonLogging()) {
+    app.useLogger(new JsonLogger());
+  }
+
+  // Antes de pipes, guards e interceptors: abre o contexto da requisição com
+  // o X-Correlation-ID do Kong, usado por todas as linhas de log dela.
+  app.use(correlationIdMiddleware);
 
   app.useGlobalPipes(
     new ValidationPipe({

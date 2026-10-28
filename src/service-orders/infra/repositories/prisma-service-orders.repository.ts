@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import PrismaUnitOfWorkService from '@/common/infra/services/prisma-unit-of-work.service';
 import {
   ServiceOrdersRepositoryInterface,
@@ -19,6 +19,8 @@ import { PrismaEstimateItemMapper } from '@service-orders/infra/mappers/prisma/p
 
 @Injectable()
 export class PrismaServiceOrdersRepository extends ServiceOrdersRepositoryInterface {
+  private readonly logger = new Logger('ServiceOrders');
+
   constructor(private readonly uow: PrismaUnitOfWorkService) {
     super();
   }
@@ -100,7 +102,42 @@ export class PrismaServiceOrdersRepository extends ServiceOrdersRepositoryInterf
     changedBy?: string;
     notes?: string;
   }): Promise<PersistedStatusHistory> {
-    return this.uow.client.serviceOrderStatusHistory.create({ data });
+    // Toda mudança de status da OS passa por aqui, então é o ponto único de
+    // onde saem os eventos dos dashboards de negócio: volume diário (created)
+    // e tempo médio em cada status (status_changed com o tempo no anterior).
+    const previous =
+      data.previousStatus === null
+        ? null
+        : await this.uow.client.serviceOrderStatusHistory.findFirst({
+            where: { serviceOrderId: data.serviceOrderId },
+            orderBy: { changedAt: 'desc' },
+            select: { changedAt: true },
+          });
+
+    const history = await this.uow.client.serviceOrderStatusHistory.create({
+      data,
+    });
+
+    const event =
+      data.previousStatus === null
+        ? { event: 'service_order.created' }
+        : {
+            event: 'service_order.status_changed',
+            previousStatus: data.previousStatus,
+            timeInPreviousStatusMs: previous
+              ? history.changedAt.getTime() - previous.changedAt.getTime()
+              : null,
+          };
+
+    this.uow.afterCommit(() =>
+      this.logger.log({
+        ...event,
+        serviceOrderId: data.serviceOrderId,
+        newStatus: data.newStatus,
+      }),
+    );
+
+    return history;
   }
 
   async createEstimate(data: {

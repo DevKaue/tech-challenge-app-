@@ -5,11 +5,12 @@ import {
   Inject,
   Injectable,
 } from '@nestjs/common';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { EXCEPTION_STATUS_MAP } from '@/common/infra/filters/exception-status.map';
 import type { ExceptionStatusMap } from '@/common/infra/filters/exception-status.map';
 import { ExceptionStatusResolver } from '@/common/infra/filters/exception-status.resolver';
 import { ExceptionResponseBuilder } from '@/common/infra/filters/exception-response.builder';
+import { logHttpOutcome } from '@/common/infra/logging/http-log';
 
 /**
  * Filter de rota. Recebe o mapa de exceções do bounded context que o registra,
@@ -20,6 +21,10 @@ import { ExceptionResponseBuilder } from '@/common/infra/filters/exception-respo
  * ```ts
  * providers: [{ provide: EXCEPTION_STATUS_MAP, useValue: customerManagementStatusMap }]
  * ```
+ *
+ * Filter de rota tem precedência sobre o global, então o registro da
+ * requisição precisa acontecer aqui também; senão um 5xx nas rotas de OS
+ * nunca chegaria ao log nem ao alerta.
  */
 @Catch()
 @Injectable()
@@ -32,8 +37,11 @@ export class DomainExceptionFilter implements ExceptionFilter {
   }
 
   catch(exception: unknown, host: ArgumentsHost): void {
-    const response = host.switchToHttp().getResponse<Response>();
+    const http = host.switchToHttp();
+    const response = http.getResponse<Response>();
     const statusCode = this.statusResolver.resolve(exception);
+
+    logHttpOutcome(http.getRequest<Request>(), statusCode, exception);
 
     response
       .status(statusCode)
