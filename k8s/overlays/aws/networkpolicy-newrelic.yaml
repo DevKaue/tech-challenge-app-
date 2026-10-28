@@ -1,0 +1,25 @@
+# Saída HTTPS da API para o New Relic (agente APM: collector.newrelic.com e
+# afins). O default-deny-all do base bloqueia toda saída; NetworkPolicy não
+# filtra por nome de host e os IPs do New Relic mudam, então a regra libera
+# 443 para fora da VPC e só. Banco e DNS continuam nas policies de sempre.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-newrelic-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: techchallenge-api
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP

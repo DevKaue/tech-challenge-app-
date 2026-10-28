@@ -1,4 +1,4 @@
-import { ArgumentsHost } from '@nestjs/common';
+import { ArgumentsHost, Logger } from '@nestjs/common';
 import CustomerAlreadyExistsException from '@/customer-management/domain/exceptions/customer-already-exists.exception';
 import CustomerIsArchivedException from '@/customer-management/domain/exceptions/customer-is-archived.exception';
 import CustomerNotFoundException from '@/customer-management/domain/exceptions/customer-not-found.exception';
@@ -13,6 +13,8 @@ describe('DomainExceptionFilter', () => {
   let filter: DomainExceptionFilter;
   let mockResponse: { status: jest.Mock; json: jest.Mock };
   let mockHost: ArgumentsHost;
+  let warnSpy: jest.SpyInstance;
+  let errorSpy: jest.SpyInstance;
 
   beforeEach(() => {
     filter = new DomainExceptionFilter(customerManagementStatusMap);
@@ -21,8 +23,48 @@ describe('DomainExceptionFilter', () => {
       json: jest.fn().mockReturnThis(),
     };
     mockHost = {
-      switchToHttp: () => ({ getResponse: () => mockResponse }),
+      switchToHttp: () => ({
+        getResponse: () => mockResponse,
+        getRequest: () => ({
+          method: 'POST',
+          route: { path: '/api/customers' },
+        }),
+      }),
     } as unknown as ArgumentsHost;
+    warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    errorSpy = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('registra a requisição com a rota, não a URL', () => {
+    filter.catch(new CustomerNotFoundException(), mockHost);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'http.request',
+        method: 'POST',
+        route: '/api/customers',
+        statusCode: 404,
+      }),
+    );
+  });
+
+  it('registra http.error em 5xx, para o alerta de falha no processamento', () => {
+    filter.catch(new Error('boom'), mockHost);
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'http.error',
+        statusCode: 500,
+        errorName: 'Error',
+      }),
+      expect.any(String),
+    );
   });
 
   it('maps CustomerAlreadyExistsException to 409', () => {

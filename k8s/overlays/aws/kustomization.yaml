@@ -7,6 +7,7 @@ resources:
   - ../../base
   - namespace.yaml
   - networkpolicy-vpc.yaml
+  - networkpolicy-newrelic.yaml
   - ingress-public.yaml
   - ingress-protected.yaml
   - kong-plugins.yaml
@@ -155,3 +156,40 @@ patches:
         name: techchallenge-config
       data:
         SWAGGER_ENABLED: 'true'
+
+  # Observabilidade (New Relic). Logs em JSON, uma linha por evento, lidos pelo
+  # Fluent Bit do nri-bundle (repositório tech-challenge-docs, pasta
+  # observabilidade/kubernetes). O agente APM só liga com NEW_RELIC_ENABLED=true
+  # e a license key, que o deploy.yml põe no Secret a partir do SSM; sem o
+  # parâmetro no SSM, a API sobe igual, só sem APM.
+  - patch: |
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: techchallenge-config
+      data:
+        LOG_FORMAT: json
+        NEW_RELIC_NO_CONFIG_FILE: 'true'
+        NEW_RELIC_DISTRIBUTED_TRACING_ENABLED: 'true'
+        # O log já chega pelo Fluent Bit; o agente só põe trace.id/span.id
+        # nas linhas (json-logger.ts). Encaminhar daqui duplicaria tudo.
+        NEW_RELIC_APPLICATION_LOGGING_FORWARDING_ENABLED: 'false'
+        # readOnlyRootFilesystem: o log do próprio agente vai para o stdout.
+        NEW_RELIC_LOG: stdout
+        NEW_RELIC_LOG_LEVEL: warn
+
+  # `-r newrelic` só no container da API. No initContainer de migrate o
+  # agente seria peso morto (o prisma CLI não atende requisição).
+  - patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: techchallenge-api
+      spec:
+        template:
+          spec:
+            containers:
+              - name: api
+                env:
+                  - name: NODE_OPTIONS
+                    value: -r newrelic
