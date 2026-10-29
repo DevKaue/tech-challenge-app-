@@ -84,7 +84,8 @@ images:
 # diferente dentro do Secret.
 
 patches:
-  # 3 réplicas e requests maiores que no local — nó dedicado, não notebook.
+  # 3 réplicas e mais memória que no local — nó dedicado, não notebook. O request
+  # de CPU é o mesmo do base (100m): com 250m o rollout não cabia nos 2 nós.
   - patch: |
       apiVersion: apps/v1
       kind: Deployment
@@ -125,7 +126,9 @@ patches:
         name: techchallenge-api
       spec:
         minReplicas: 3
-        maxReplicas: 10
+        # O teto precisa caber nos 2 nós (sem Cluster Autoscaler), junto com Kong
+        # e o nri-bundle; acima disso o HPA cria pods que ficam Pending.
+        maxReplicas: 5
 
   # Com 3 réplicas, minAvailable:1 do base permitiria derrubar 2 de uma vez.
   # maxUnavailable:1 mantém 2 pods servindo durante drain de nó.
