@@ -195,4 +195,4 @@ patches:
               - name: api
                 env:
                   - name: NODE_OPTIONS
-                    value: --max-old-space-size=384 -r newrelic
+                    value: -r newrelic
