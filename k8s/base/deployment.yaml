@@ -6,7 +6,7 @@ metadata:
     app.kubernetes.io/name: techchallenge-api
     app.kubernetes.io/component: api
 spec:
-  replicas: 2
+  replicas: 1
   revisionHistoryLimit: 5
   # Pega o pod que sobe e morre logo depois — sem isto ele contaria como
   # disponível e o rollout seguiria em frente.
@@ -14,8 +14,8 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0 # capacidade nunca cai durante o deploy
+      maxSurge: 0
+      maxUnavailable: 1 # capacidade nunca cai durante o deploy
   selector:
     matchLabels:
       app.kubernetes.io/name: techchallenge-api
