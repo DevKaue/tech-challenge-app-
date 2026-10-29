@@ -14,8 +14,10 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
+      # Sem pod extra: os 2 nós do cluster não têm CPU de sobra para um surge
+      # (o rollout travava com Pending). Um pod sai antes do novo ficar pronto.
       maxSurge: 0
-      maxUnavailable: 1 # capacidade nunca cai durante o deploy
+      maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: techchallenge-api
