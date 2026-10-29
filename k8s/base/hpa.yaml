@@ -7,8 +7,8 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: techchallenge-api
-  minReplicas: 3 # deve ser >= PDB minAvailable
-  maxReplicas: 10
+  minReplicas: 2 # deve ser >= PDB minAvailable
+  maxReplicas: 5
   # SÓ CPU, de propósito. Escalar por memória num app Node é uma catraca: o heap
   # cresce sob carga e o GC não devolve RSS quando a carga cessa. Como o HPA usa
   # o MÁXIMO entre as métricas, a memória travaria as réplicas no teto — o que
