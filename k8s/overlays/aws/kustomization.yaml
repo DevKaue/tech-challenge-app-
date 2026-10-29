@@ -115,7 +115,7 @@ patches:
               - name: api
                 resources:
                   requests:
-                    cpu: 100m
+                    cpu: 250m
                     memory: 512Mi
 
   - patch: |
@@ -195,4 +195,4 @@ patches:
               - name: api
                 env:
                   - name: NODE_OPTIONS
-                    value: --max-old-space-size=384 -r newrelic
+                    value: -r newrelic
