@@ -204,6 +204,9 @@ jobs:
         if: failure() && steps.rollout.outcome == 'failure'
         run: |
           echo "::error::Rollout falhou — revertendo"
+          # Pod Pending por falta de CPU/memória só aparece nos eventos.
+          kubectl -n "$NAMESPACE" get pods -o wide || true
+          kubectl -n "$NAMESPACE" get events --sort-by=.lastTimestamp | tail -25 || true
           kubectl -n "$NAMESPACE" describe deployment "$DEPLOYMENT" | tail -30
           kubectl -n "$NAMESPACE" logs "deployment/$DEPLOYMENT" --tail=100 --all-containers || true
           kubectl -n "$NAMESPACE" rollout undo "deployment/$DEPLOYMENT"
