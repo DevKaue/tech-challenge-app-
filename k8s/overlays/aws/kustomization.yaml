@@ -180,6 +180,9 @@ patches:
 
   # `-r newrelic` só no container da API. No initContainer de migrate o
   # agente seria peso morto (o prisma CLI não atende requisição).
+  # O env do container substitui o NODE_OPTIONS do Dockerfile, então o limite
+  # de heap precisa ser repetido aqui; sem ele, o heap é dimensionado pela RAM
+  # do nó e um pico vira OOMKill em vez de GC.
   - patch: |
       apiVersion: apps/v1
       kind: Deployment
@@ -192,4 +195,4 @@ patches:
               - name: api
                 env:
                   - name: NODE_OPTIONS
-                    value: -r newrelic
+                    value: --max-old-space-size=384 -r newrelic
