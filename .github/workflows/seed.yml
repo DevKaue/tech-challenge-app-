@@ -1,7 +1,9 @@
 name: Seed (manual)
 
-# Popula o banco do cluster com os dados de demonstração do prisma/seed.ts
-# (usuários, catálogo, peças, clientes e veículos). NUNCA roda sozinho: o seed
+# Repopula o banco do cluster com os dados de demonstração do prisma/seed.ts
+# (usuários, catálogo, peças, clientes e veículos). O deploy já roda o seed
+# sozinho quando o banco está vazio; este workflow é para refazer a massa em
+# banco que já tem dados. Só roda sob demanda: o seed
 # apaga usuários, clientes, veículos, catálogo e peças antes de inserir, e cria
 # usuários com a senha pública Tech@123. Só para ambiente de demonstração.
 on:
@@ -61,7 +63,7 @@ jobs:
         env:
           PERMITIR: ${{ inputs.permitir_com_ordens }}
         run: |
-          ORDENS=$(kubectl -n "$NAMESPACE" exec -i "deploy/$DEPLOYMENT" -c api -- node -e '
+          ORDENS=$(kubectl -n "$NAMESPACE" exec -i "deploy/$DEPLOYMENT" -c api -- env NODE_OPTIONS= node -e '
             const { Client } = require("pg");
             (async () => {
               const c = new Client({ connectionString: process.env.DATABASE_URL });
@@ -79,7 +81,7 @@ jobs:
 
       # Sai com `Seed already applied — skipping` se os 3 usuários já existem.
       - name: Rodar o seed
-        run: kubectl -n "$NAMESPACE" exec "deploy/$DEPLOYMENT" -c api -- node dist/prisma/seed.js
+        run: kubectl -n "$NAMESPACE" exec "deploy/$DEPLOYMENT" -c api -- env NODE_OPTIONS= node dist/prisma/seed.js
 
       # O seed apaga os clientes, inclusive o sintético do smoke da Lambda.
       - name: Recriar o cliente de smoke
@@ -91,7 +93,7 @@ jobs:
             exit 0
           fi
           kubectl -n "$NAMESPACE" exec -i "deploy/$DEPLOYMENT" -c api -- \
-            node - "$CPF_ATIVO" < .github/scripts/garantir-cliente-smoke.js
+            env NODE_OPTIONS= node - "$CPF_ATIVO" < .github/scripts/garantir-cliente-smoke.js
 
       - name: Resumo
         if: always()
