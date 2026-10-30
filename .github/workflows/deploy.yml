@@ -212,6 +212,52 @@ jobs:
           kubectl -n "$NAMESPACE" rollout undo "deployment/$DEPLOYMENT"
           kubectl -n "$NAMESPACE" rollout status "deployment/$DEPLOYMENT" --timeout=180s
 
+      # Banco recém-criado (migrations aplicadas, `users` vazia): roda o seed de
+      # demonstração para o login funcionar. Só age com users = 0 e nenhuma ordem
+      # de serviço; em banco com dados não faz nada. Cria usuários com a senha
+      # pública Tech@123 (ver prisma/seed.ts): ambiente de demonstração.
+      # `env NODE_OPTIONS=` no exec: o processo novo herdaria o agente do New
+      # Relic e o heap do container, que tem limite de memória compartilhado com
+      # a API em execução.
+      - name: Popular o banco se estiver vazio
+        run: |
+          CONTAGEM=$(kubectl -n "$NAMESPACE" exec -i "deploy/$DEPLOYMENT" -c api -- env NODE_OPTIONS= node -e '
+            const { Client } = require("pg");
+            (async () => {
+              const c = new Client({ connectionString: process.env.DATABASE_URL });
+              await c.connect();
+              const r = await c.query("SELECT (SELECT count(*) FROM users)::int AS u, (SELECT count(*) FROM service_orders)::int AS o");
+              console.log(r.rows[0].u + " " + r.rows[0].o);
+              await c.end();
+            })().catch(e => { console.error("erro:", e.name); process.exit(1); });
+          ' | tail -n1)
+          read -r USUARIOS ORDENS <<< "$CONTAGEM"
+          echo "Usuários: $USUARIOS, ordens de serviço: $ORDENS"
+          if [ "$USUARIOS" != "0" ]; then
+            echo "Banco já tem usuários: seed não executado"
+          elif [ "$ORDENS" != "0" ]; then
+            echo "::warning::Sem usuários, mas com ordens de serviço: seed não executado (ele apagaria clientes e veículos)"
+          else
+            kubectl -n "$NAMESPACE" exec "deploy/$DEPLOYMENT" -c api -- env NODE_OPTIONS= node dist/prisma/seed.js
+          fi
+
+      # Cliente sintético que o smoke da Lambda de autenticação usa. Fica aqui,
+      # e não no repositório da Lambda, porque a ordem de deploy é infra
+      # Kubernetes → banco → aplicação → Lambda: quando o smoke da Lambda roda,
+      # o cliente já existe. O mesmo valor de SMOKE_CPF_ATIVO precisa estar nos
+      # dois environments. Sem o secret, o passo é pulado. Vem depois do seed
+      # porque o seed apaga os clientes.
+      - name: Garantir o cliente de smoke
+        env:
+          CPF_ATIVO: ${{ secrets.SMOKE_CPF_ATIVO }}
+        run: |
+          if [ -z "$CPF_ATIVO" ]; then
+            echo "::notice::Sem SMOKE_CPF_ATIVO neste environment: cliente de smoke não criado"
+            exit 0
+          fi
+          kubectl -n "$NAMESPACE" exec -i "deploy/$DEPLOYMENT" -c api -- \
+            env NODE_OPTIONS= node - "$CPF_ATIVO" < .github/scripts/garantir-cliente-smoke.js
+
       # Pelo Kong, o endereço público: o NLB do Service kong-gateway-proxy
       # (namespace kong, instalado pelo repositório de infraestrutura).
       - name: Smoke test
