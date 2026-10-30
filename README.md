@@ -230,6 +230,19 @@ npm run k8s:forward     # http://localhost:8080/api/docs
 npm run k8s:status      # pods, svc e hpa
 ```
 
+### No cluster da AWS (EKS)
+
+O deploy só aplica as migrations; ele não popula o banco. Para os usuários e dados
+de demonstração, rode o workflow **Seed (manual)** (Actions → Seed (manual) → Run
+workflow) e digite `SEED` em `confirmar`. Ele recusa rodar se já houver ordens de
+serviço (a menos que `permitir_com_ordens` esteja marcado), porque o seed apaga
+usuários, clientes, veículos, catálogo e peças antes de inserir. Os usuários criados
+têm a senha pública `Tech@123`: use só em ambiente de demonstração.
+
+O cliente sintético do smoke da Lambda de autenticação é criado pelo próprio deploy
+(passo "Garantir o cliente de smoke"), se o secret `SMOKE_CPF_ATIVO` existir no
+environment, com o mesmo valor do environment da Lambda.
+
 ### Opção 3 — Node.js direto
 
 Com um PostgreSQL acessível e o `DATABASE_URL` configurado no `.env`:

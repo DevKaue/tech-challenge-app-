@@ -1,0 +1,105 @@
+name: Seed (manual)
+
+# Popula o banco do cluster com os dados de demonstração do prisma/seed.ts
+# (usuários, catálogo, peças, clientes e veículos). NUNCA roda sozinho: o seed
+# apaga usuários, clientes, veículos, catálogo e peças antes de inserir, e cria
+# usuários com a senha pública Tech@123. Só para ambiente de demonstração.
+on:
+  workflow_dispatch:
+    inputs:
+      confirmar:
+        description: 'Digite SEED para confirmar (APAGA usuários, clientes, veículos, catálogo e peças)'
+        required: true
+      permitir_com_ordens:
+        description: 'Rodar mesmo com ordens de serviço no banco (as ordens podem impedir o seed ou ficar órfãs)'
+        type: boolean
+        default: false
+
+# Mesmo grupo do deploy: não roda junto de um rollout.
+concurrency:
+  group: deploy-${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+  NAMESPACE: ${{ github.ref == 'refs/heads/main' && 'techchallenge' || 'techchallenge-staging' }}
+  DEPLOYMENT: techchallenge-api
+
+jobs:
+  seed:
+    name: Seed no cluster
+    if: inputs.confirmar == 'SEED'
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Credenciais AWS (OIDC ou credenciais do lab)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE }}
+          aws-access-key-id: ${{ secrets.AWS_LAB_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_LAB_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_LAB_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: kubeconfig
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+
+      - name: Aguardar a API
+        run: kubectl -n "$NAMESPACE" rollout status "deployment/$DEPLOYMENT" --timeout=180s
+
+      # O seed apaga clientes e veículos; com ordens de serviço ligadas a eles,
+      # falha no meio ou deixa o banco inconsistente. Barra por padrão.
+      - name: Conferir se há ordens de serviço
+        env:
+          PERMITIR: ${{ inputs.permitir_com_ordens }}
+        run: |
+          ORDENS=$(kubectl -n "$NAMESPACE" exec -i "deploy/$DEPLOYMENT" -c api -- node -e '
+            const { Client } = require("pg");
+            (async () => {
+              const c = new Client({ connectionString: process.env.DATABASE_URL });
+              await c.connect();
+              const r = await c.query("SELECT count(*)::int AS n FROM service_orders");
+              console.log(r.rows[0].n);
+              await c.end();
+            })().catch(e => { console.error("erro:", e.name); process.exit(1); });
+          ')
+          echo "Ordens de serviço no banco: $ORDENS"
+          if [ "$ORDENS" != "0" ] && [ "$PERMITIR" != "true" ]; then
+            echo "::error::Há $ORDENS ordem(ns) de serviço. Rode de novo com permitir_com_ordens=true se for isso mesmo que você quer."
+            exit 1
+          fi
+
+      # Sai com `Seed already applied — skipping` se os 3 usuários já existem.
+      - name: Rodar o seed
+        run: kubectl -n "$NAMESPACE" exec "deploy/$DEPLOYMENT" -c api -- node dist/prisma/seed.js
+
+      # O seed apaga os clientes, inclusive o sintético do smoke da Lambda.
+      - name: Recriar o cliente de smoke
+        env:
+          CPF_ATIVO: ${{ secrets.SMOKE_CPF_ATIVO }}
+        run: |
+          if [ -z "$CPF_ATIVO" ]; then
+            echo "::notice::Sem SMOKE_CPF_ATIVO neste environment: cliente de smoke não recriado"
+            exit 0
+          fi
+          kubectl -n "$NAMESPACE" exec -i "deploy/$DEPLOYMENT" -c api -- \
+            node - "$CPF_ATIVO" < .github/scripts/garantir-cliente-smoke.js
+
+      - name: Resumo
+        if: always()
+        run: |
+          {
+            echo "### Seed"
+            echo ""
+            echo "Cluster \`$EKS_CLUSTER_NAME\`, namespace \`$NAMESPACE\`: ${{ job.status }}."
+            echo ""
+            echo "Usuários do seed (senha \`Tech@123\`): ana.santos@oficina.com, joao.silva@oficina.com, carlos.oliveira@oficina.com."
+          } >> "$GITHUB_STEP_SUMMARY"

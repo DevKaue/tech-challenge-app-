@@ -212,6 +212,22 @@ jobs:
           kubectl -n "$NAMESPACE" rollout undo "deployment/$DEPLOYMENT"
           kubectl -n "$NAMESPACE" rollout status "deployment/$DEPLOYMENT" --timeout=180s
 
+      # Cliente sintético que o smoke da Lambda de autenticação usa. Fica aqui,
+      # e não no repositório da Lambda, porque a ordem de deploy é infra
+      # Kubernetes → banco → aplicação → Lambda: quando o smoke da Lambda roda,
+      # o cliente já existe. O mesmo valor de SMOKE_CPF_ATIVO precisa estar nos
+      # dois environments. Sem o secret, o passo é pulado.
+      - name: Garantir o cliente de smoke
+        env:
+          CPF_ATIVO: ${{ secrets.SMOKE_CPF_ATIVO }}
+        run: |
+          if [ -z "$CPF_ATIVO" ]; then
+            echo "::notice::Sem SMOKE_CPF_ATIVO neste environment: cliente de smoke não criado"
+            exit 0
+          fi
+          kubectl -n "$NAMESPACE" exec -i "deploy/$DEPLOYMENT" -c api -- \
+            node - "$CPF_ATIVO" < .github/scripts/garantir-cliente-smoke.js
+
       # Pelo Kong, o endereço público: o NLB do Service kong-gateway-proxy
       # (namespace kong, instalado pelo repositório de infraestrutura).
       - name: Smoke test
